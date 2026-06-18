@@ -10,7 +10,6 @@ const createUser = asyncHandler(async (req, res) => {
   const {
     fullName,
     email,
-    phone,
     password,
     role,
     verificationToken,
@@ -45,13 +44,13 @@ const createUser = asyncHandler(async (req, res) => {
 
   // Check existing user
   const existingUser = await User.findOne({
-    $or: [{ email }, { phone }],
+    $or: [{ email }],
   });
 
   if (existingUser) {
     return res.status(409).json({
       success: false,
-      message: "User already exists with this email or phone.",
+      message: "User already exists with this email.",
     });
   }
 
@@ -62,7 +61,6 @@ const createUser = asyncHandler(async (req, res) => {
   const user = await User.create({
     fullName,
     email,
-    phone,
     password: hashedPassword,
     role: role || "student",
     emailVerified: true,
