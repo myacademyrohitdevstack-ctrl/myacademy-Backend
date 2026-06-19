@@ -35,12 +35,24 @@ const emailOtpSchema = new mongoose.Schema(
     expiresAt: {
       type: Date,
       required: true,
-      index: { expires: 0 }, // MongoDB TTL Index
     },
+      resendCount: {
+      type: Number,
+      default: 0,
+    },
+       lastSentAt: {
+      type: Date,
+      default: Date.now,
+    }
   },
   {
     timestamps: true,
   }
+);
+// Automatically delete expired OTP documents
+emailOtpSchema.index(
+  { expiresAt: 1 },
+  { expireAfterSeconds: 0 }
 );
 EmailOtp=mongoose.model("EmailOtp", emailOtpSchema);
 module.exports=EmailOtp

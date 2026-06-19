@@ -113,11 +113,33 @@ const generateOtp = () => {
         });
       }
     }
-    // Remove previous OTP
-    await EmailOtp.deleteMany({
-      email,
-      purpose,
-    });
+   // Check existing OTP
+  let emailOtp = await EmailOtp.findOne({
+    email,
+    purpose,
+  });
+   if (emailOtp) {
+    // 60-second cooldown
+    const secondsPassed = Math.floor(
+      (Date.now() - emailOtp.lastSentAt.getTime()) / 1000
+    );
+
+    if (secondsPassed < 60) {
+      return res.status(429).json({
+        success: false,
+        message: `Please wait ${60 - secondsPassed} seconds before requesting another OTP.`,
+      });
+    }
+
+    // Maximum resend limit
+    if (emailOtp.resendCount >= 5) {
+      return res.status(429).json({
+        success: false,
+        message:
+          "Maximum OTP requests reached. Please try again after 5 minutes.",
+      });
+    }
+  }
 
     // Generate OTP
     const otp = generateOtp();
@@ -126,12 +148,25 @@ const generateOtp = () => {
     const hashedOtp = await bcrypt.hash(otp, 10);
 
     // Save
-    await EmailOtp.create({
+   if (emailOtp) {
+    emailOtp.otp = hashedOtp;
+    emailOtp.expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    emailOtp.lastSentAt = new Date();
+    emailOtp.resendCount += 1;
+    emailOtp.attempts = 0;
+
+    await emailOtp.save();
+  } else {
+    emailOtp = await EmailOtp.create({
       email,
       purpose,
       otp: hashedOtp,
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 min
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      lastSentAt: new Date(),
+      resendCount: 0,
+      attempts: 0,
     });
+  }
 
     // Send Email
     await sendEmail({
@@ -149,70 +184,89 @@ const generateOtp = () => {
     });
 
     return res.status(200).json({
-      success: true,
-      message: "OTP sent successfully.",
-    });
+    success: true,
+    message: "OTP sent successfully.",
+    resendAfter: 60,
+  });
 
 })
 
 // ================= VERIFY OTP =================
 
- const verifyOtp = asyncHandler(async (req, res) => {
+const verifyOtp = asyncHandler(async (req, res) => {
+  const { email, otp, purpose } = req.body;
 
-    const { email, otp, purpose } = req.body;
-
-    const emailOtp = await EmailOtp.findOne({
-      email,
-      purpose,
-    }).select("+otp");
-
-    if (!emailOtp) {
-      return res.status(404).json({
-        success: false,
-        message: "OTP not found.",
-      });
-    }
-
-    if (emailOtp.expiresAt < new Date()) {
-      await EmailOtp.deleteOne({ _id: emailOtp._id });
-
-      return res.status(400).json({
-        success: false,
-        message: "OTP has expired.",
-      });
-    }
-
-    const matched = await bcrypt.compare(
-      otp,
-      emailOtp.otp
-    );
-
-    if (!matched) {
-      emailOtp.attempts += 1;
-
-      await emailOtp.save();
-
-      return res.status(400).json({
-        success: false,
-        message: "Invalid OTP.",
-      });
-    }
-  const verificationToken = generateVerificationToken(
+  const emailOtp = await EmailOtp.findOne({
     email,
-    purpose
-);
+    purpose,
+  }).select("+otp");
 
-await EmailOtp.deleteOne({
-    _id: emailOtp._id,
-});
+  // Don't reveal whether OTP exists or not
+  if (!emailOtp) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid or expired OTP.",
+    });
+  }
 
-    return res.status(200).json({
-      verificationToken,
-      success: true,
-      message: "OTP verified successfully.",
+  // Expired
+  if (emailOtp.expiresAt < new Date()) {
+    await EmailOtp.deleteOne({ _id: emailOtp._id });
+
+    return res.status(400).json({
+      success: false,
+      message: "Invalid or expired OTP.",
+    });
+  }
+
+  // Too many attempts
+  if (emailOtp.attempts >= 5) {
+    await EmailOtp.deleteOne({
+      _id: emailOtp._id,
     });
 
-})
+    return res.status(429).json({
+      success: false,
+      message:
+        "Too many incorrect attempts. Please request a new OTP.",
+    });
+  }
+
+  const matched = await bcrypt.compare(
+    otp,
+    emailOtp.otp
+  );
+
+  if (!matched) {
+    emailOtp.attempts += 1;
+
+    await emailOtp.save();
+
+    const remaining = 5 - emailOtp.attempts;
+
+    return res.status(400).json({
+      success: false,
+      message:
+        remaining > 0
+          ? `Invalid OTP. ${remaining} attempt(s) remaining.`
+          : "Too many incorrect attempts. Please request a new OTP.",
+    });
+  }
+
+  // Success
+  const verificationToken =
+    generateVerificationToken(email, purpose);
+
+  await EmailOtp.deleteOne({
+    _id: emailOtp._id,
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "OTP verified successfully.",
+    verificationToken,
+  });
+});
 
 const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
