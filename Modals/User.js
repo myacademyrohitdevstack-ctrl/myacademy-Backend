@@ -46,6 +46,28 @@ const userSchema = new mongoose.Schema(
       enum: ["pending", "active", "blocked"],
       default: "active",
     },
+    status: {
+  type: String,
+  enum: ["active", "blocked"],
+  default: "active",
+},
+
+blockedAt: {
+  type: Date,
+  default: null,
+},
+
+blockedBy: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "User",
+  default: null,
+},
+
+blockReason: {
+  type: String,
+  default: null,
+  trim: true,
+},
 
     emailVerified: {
       type: Boolean,
