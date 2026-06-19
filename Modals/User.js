@@ -76,7 +76,7 @@ const userSchema = new mongoose.Schema(
       enum: ["email", "google"],
       default: "email",
     },
-
+   
     isDeleted: {
       type: Boolean,
       default: false,
@@ -94,6 +94,15 @@ approvedBy: {
 },
 
 approvedAt: {
+  type: Date,
+  default: null,
+},
+loginAttempts: {
+  type: Number,
+  default: 0,
+},
+
+lockUntil: {
   type: Date,
   default: null,
 },

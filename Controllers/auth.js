@@ -5,7 +5,15 @@ const asyncHandler = require("../Utils/asyncHandler");
 const sendEmail = require("../Utils/sendEmail");
 const generateVerificationToken = require("../Utils/generateVerificationToken");
 const jwt = require("jsonwebtoken");
-
+const Session = require("../Modals/Sessions");
+const UAParser = require("ua-parser-js");
+const hashToken = require("../Utils/hashToken");
+const {
+  generateAccessToken,
+  generateRefreshToken,
+} = require("../Utils/generateTokens");
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCK_TIME = 15 * 60 * 1000; // 15 minutes
 const createUser = asyncHandler(async (req, res) => {
   const {
     fullName,
@@ -271,25 +279,50 @@ const verifyOtp = asyncHandler(async (req, res) => {
 const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  // Find user (password is select:false)
-  const user = await User.findOne({ email }).select("+password");
+const user = await User.findOne({ email }).select("+password");
 
-  if (!user) {
-    return res.status(401).json({
-      success: false,
-      message: "Invalid email or password.",
-    });
-  }
+if (!user) {
+  return res.status(401).json({
+    success: false,
+    message: "Invalid email or password.",
+  });
+}
+
+// Is account locked?
+if (user.lockUntil && user.lockUntil > Date.now()) {
+  const minutes = Math.ceil(
+    (user.lockUntil.getTime() - Date.now()) / 60000
+  );
+
+  return res.status(423).json({
+    success: false,
+    message: `Account locked. Try again in ${minutes} minute(s).`,
+  });
+}
+ 
 
   // Check password
   const isMatch = await bcrypt.compare(password, user.password);
 
-  if (!isMatch) {
-    return res.status(401).json({
-      success: false,
-      message: "Invalid email or password.",
-    });
+if (!isMatch) {
+  user.loginAttempts += 1;
+
+  if (user.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
+    user.lockUntil = new Date(Date.now() + LOCK_TIME);
   }
+
+  await user.save();
+
+  const remaining = MAX_LOGIN_ATTEMPTS - user.loginAttempts;
+
+  return res.status(401).json({
+    success: false,
+    message:
+      remaining > 0
+        ? `Invalid email or password. ${remaining} attempt(s) remaining.`
+        : "Account locked for 15 minutes due to multiple failed login attempts.",
+  });
+}
 
   // Check account status
   if (user.approvalStatus === "pending") {
@@ -314,18 +347,51 @@ const login = asyncHandler(async (req, res) => {
       message: "Your account has been blocked.",
     });
   }
+user.loginAttempts = 0;
+user.lockUntil = null;
+user.lastLogin = new Date();
+await user.save();
 
+// device infomation
+const parser = new UAParser(req.headers["user-agent"]);
+
+const browser = parser.getBrowser().name || "Unknown";
+
+const os = parser.getOS().name || "Unknown";
+
+const device =
+  parser.getDevice().model ||
+  parser.getDevice().type ||
+  "Desktop";
+
+const ip =
+  req.headers["x-forwarded-for"]?.split(",")[0] ||
+  req.socket.remoteAddress ||
+  "";
   // Generate JWT
-  const token = jwt.sign(
-    {
-      id: user._id,
-      role: user.role,
-    },
-    process.env.JWT_SECRET,
-    {
-      expiresIn: "7d",
-    }
-  );
+ const accessToken = generateAccessToken(user);
+const refreshToken = generateRefreshToken(user);
+const refreshTokenHash = hashToken(refreshToken);
+//create session
+await Session.create({
+  user: user._id,
+
+  refreshTokenHash,
+
+  browser,
+
+  os,
+
+  device,
+
+  ip,
+
+  userAgent: req.headers["user-agent"],
+
+  expiresAt: new Date(
+    Date.now() + 7 * 24 * 60 * 60 * 1000
+  ),
+});
 
   // Update last login
   user.lastLogin = new Date();
@@ -333,11 +399,94 @@ const login = asyncHandler(async (req, res) => {
 
   // Remove password from response
   user.password = undefined;
+res.cookie("refreshToken", refreshToken, {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "strict",
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+});
+ return res.status(200).json({
+  success: true,
+  message: "Login successful.",
 
-  return res.status(200).json({
+  accessToken,
+
+  user: {
+    id: user._id,
+    fullName: user.fullName,
+    email: user.email,
+    role: user.role,
+  },
+});
+});
+const refreshAccessToken = asyncHandler(async (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+
+  if (!refreshToken) {
+    return res.status(401).json({
+      success: false,
+      message: "Refresh token missing.",
+    });
+  }
+
+  let decoded;
+
+  try {
+    decoded = jwt.verify(
+      refreshToken,
+      process.env.REFRESH_SECRET
+    );
+  } catch {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid refresh token.",
+    });
+  }
+
+  const refreshTokenHash = hashToken(refreshToken);
+
+  const session = await Session.findOne({
+    refreshTokenHash,
+  });
+
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      message: "Session not found.",
+    });
+  }
+
+  const user = await User.findById(decoded.id);
+
+  if (!user) {
+    return res.status(401).json({
+      success: false,
+      message: "User not found.",
+    });
+  }
+
+  // Create NEW tokens (token rotation)
+  const newAccessToken = generateAccessToken(user);
+  const newRefreshToken = generateRefreshToken(user);
+
+  session.refreshTokenHash = hashToken(newRefreshToken);
+  session.lastActive = new Date();
+  session.expiresAt = new Date(
+    Date.now() + 7 * 24 * 60 * 60 * 1000
+  );
+
+  await session.save();
+
+  res.cookie("refreshToken", newRefreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
+  return res.json({
     success: true,
-    message: "Login successful.",
-    token,
+    accessToken: newAccessToken,
   });
 });
-module.exports ={createUser,sendOtp,verifyOtp,login}
+module.exports ={createUser,sendOtp,verifyOtp,login,refreshAccessToken}
