@@ -91,11 +91,11 @@ const approveUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const session = await mongoose.startSession();
-
+  let user;
   try {
     session.startTransaction();
 
-    const user = await User.findById(id).session(session);
+     user = await User.findById(id).session(session);
 
     if (!user) {
       await session.abortTransaction();

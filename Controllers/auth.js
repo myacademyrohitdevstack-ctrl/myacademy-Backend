@@ -415,6 +415,8 @@ res.cookie("refreshToken", refreshToken, {
     id: user._id,
     fullName: user.fullName,
     email: user.email,
+    phone:user.phone,
+    profileImage:user.profileImage,
     role: user.role,
   },
 });
@@ -487,6 +489,52 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   return res.json({
     success: true,
     accessToken: newAccessToken,
+     user: {
+    id: user._id,
+    fullName: user.fullName,
+    email: user.email,
+    phone:user.phone,
+    profileImage:user.profileImage,
+    role: user.role,
+  },
   });
 });
-module.exports ={createUser,sendOtp,verifyOtp,login,refreshAccessToken}
+const logout = asyncHandler(async (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+
+  if (refreshToken) {
+    const refreshTokenHash = hashToken(refreshToken);
+
+    await Session.deleteOne({
+      refreshTokenHash,
+    });
+  }
+
+  res.clearCookie("refreshToken", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Logged out successfully.",
+  });
+});
+const logoutAll = asyncHandler(async (req, res) => {
+  await Session.deleteMany({
+    user: req.user._id,
+  });
+
+  res.clearCookie("refreshToken", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Logged out from all devices.",
+  });
+});
+module.exports ={createUser,sendOtp,verifyOtp,login,refreshAccessToken,logout,logoutAll}

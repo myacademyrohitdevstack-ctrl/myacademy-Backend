@@ -1,5 +1,5 @@
 const jwt = require("jsonwebtoken");
-const User = require("../Models/User");
+const User = require("../Modals/User");
 const asyncHandler = require("../Utils/asyncHandler");
 
 const protect = asyncHandler(async (req, res, next) => {
@@ -10,6 +10,7 @@ const protect = asyncHandler(async (req, res, next) => {
     req.headers.authorization &&
     req.headers.authorization.startsWith("Bearer ")
   ) {
+    
     token = req.headers.authorization.split(" ")[1];
   }
 

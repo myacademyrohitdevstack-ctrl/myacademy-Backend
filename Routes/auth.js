@@ -1,6 +1,7 @@
 /* Importing the required modules. */
 const express = require("express");
-const { createUser, sendOtp, verifyOtp, login, refreshAccessToken } = require("../Controllers/auth");
+const { createUser, sendOtp, verifyOtp, login, refreshAccessToken, logout } = require("../Controllers/auth");
+const protect = require("../Middleware/protect");
 const router = express.Router();
 
 // const fetchUser = require("../Middleware/fetchUser.js");
@@ -18,6 +19,9 @@ router.post(
 );
 router.post(
   "/login",login
+);
+router.post(
+  "/logout",protect,logout
 );
 router.post("/refresh-token", refreshAccessToken);
 
