@@ -31,8 +31,8 @@ app.use(express.json({ limit: "50mb" }));
 app.use("/api/auth", require("./Routes/auth"));
 app.use("/api/admin", require("./Routes/admin"));
 app.use("/api/student", require("./Routes/student"));
-// app.use("/api/user", require("./Routes/user"));
-// app.use("/api/user", require("./Routes/User"));
+app.use("/api/user", require("./Routes/user"));
+
 app.use((req, res) => {
   res.status(404).json({ message: "Route not found" });
 });

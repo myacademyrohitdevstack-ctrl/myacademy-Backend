@@ -73,7 +73,7 @@ const getUsers = asyncHandler(async (req, res) => {
 
   return res.status(200).json({
     success: true,
-    data: users,
+    users,
     pagination: {
       page: currentPage,
       limit: perPage,
