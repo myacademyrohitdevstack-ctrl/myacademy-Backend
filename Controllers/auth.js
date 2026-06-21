@@ -326,7 +326,7 @@ if (!isMatch) {
 
   // Check account status
   if (user.approvalStatus === "pending") {
-    return res.status(403).json({
+    return res.status(401).json({
       success: false,
       message:
         "Your account is awaiting admin approval. Please try again later.",
@@ -334,7 +334,7 @@ if (!isMatch) {
   }
 
   if (user.approvalStatus === "rejected") {
-    return res.status(403).json({
+    return res.status(401).json({
       success: false,
       message:
         "Your account has been rejected. Please contact the administrator.",
@@ -342,7 +342,7 @@ if (!isMatch) {
   }
 
   if (user.status === "blocked") {
-    return res.status(403).json({
+    return res.status(401).json({
       success: false,
       message: "Your account has been blocked.",
     });

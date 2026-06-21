@@ -4,7 +4,9 @@ const authorize = require("../Middleware/authorize");
 const { deleteClassLink, updateClassLink, getClassLinkById, getClassLinks, createClassLink } = require("../Controllers/classLink");
 const router = express.Router();
 router.post(
-  "/batches/:batchId/class-links",
+  "/:batchId/add",
+  protect,
+  authorize("admin"),
   createClassLink
 );
 

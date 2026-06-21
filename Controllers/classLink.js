@@ -1,7 +1,9 @@
 const ClassLink = require("../Modals/ClassLink");
 const Batch = require("../Modals/Batches");
+const asyncHandler = require("../Utils/asyncHandler");
 
 const createClassLink = asyncHandler(async (req, res) => {
+ 
   const batch = await Batch.findById(
     req.params.batchId
   );

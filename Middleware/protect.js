@@ -15,8 +15,9 @@ const protect = asyncHandler(async (req, res, next) => {
   }
 
   if (!token) {
-    return res.status(401).json({
+    return res.status(403).json({
       success: false,
+      code:"TOKEN-EXPIRE",
       message: "Access token is required.",
     });
   }
@@ -26,8 +27,9 @@ const protect = asyncHandler(async (req, res, next) => {
   try {
     decoded = jwt.verify(token, process.env.ACCESS_SECRET);
   } catch (error) {
-    return res.status(401).json({
+    return res.status(403).json({
       success: false,
+       code:"TOKEN-EXPIRE",
       message: "Invalid or expired access token.",
     });
   }
@@ -37,29 +39,30 @@ const protect = asyncHandler(async (req, res, next) => {
   );
 
   if (!user) {
-    return res.status(401).json({
+    return res.status(403).json({
       success: false,
+       code:"TOKEN-EXPIRE",
       message: "User not found.",
     });
   }
 
   // Security checks
   if (user.status === "blocked") {
-    return res.status(403).json({
+    return res.status(401).json({
       success: false,
       message: "Your account has been blocked.",
     });
   }
 
   if (user.approvalStatus === "pending") {
-    return res.status(403).json({
+    return res.status(401).json({
       success: false,
       message: "Your account is awaiting admin approval.",
     });
   }
 
   if (user.approvalStatus === "rejected") {
-    return res.status(403).json({
+    return res.status(401).json({
       success: false,
       message: "Your account has been rejected.",
     });
