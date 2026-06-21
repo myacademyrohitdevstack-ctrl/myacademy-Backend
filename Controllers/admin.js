@@ -4,6 +4,10 @@ const sendEmail = require("../Utils/sendEmail");
 const asyncHandler = require("../Utils/asyncHandler");
 const User = require("../Modals/User");
 
+
+
+const Course = require("../Modals/Courses");
+const Batch = require("../Modals/Batches");
 const mongoose = require("mongoose");
 
 const getUsers = asyncHandler(async (req, res) => {
@@ -23,11 +27,11 @@ const getUsers = asyncHandler(async (req, res) => {
 
   const filter = {};
 
-  if (role) filter.role = role;
+  if (role && role !== "all") filter.role = role;
 
-  if (approvalStatus) filter.approvalStatus = approvalStatus;
+  if (approvalStatus && approvalStatus !== "all") filter.approvalStatus = approvalStatus;
 
-  if (status) filter.status = status;
+  if (status && status !=="all") filter.status = status;
 
   if (search) {
     filter.$or = [
@@ -428,8 +432,139 @@ const unblockUser = asyncHandler(async (req, res) => {
     message: "User unblocked successfully.",
   });
 });
+const getUserById = asyncHandler(async (req, res) => {
+  const { id } = req.params;
 
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid user id.",
+    });
+  }
+
+  const user = await User.findById(id)
+    .select("-password -refreshToken");
+
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: "User not found.",
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    user,
+  });
+});
+const updateUserByAdmin = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const allowedFields = [
+    "fullName",
+    "email",
+    "phone",
+    "role",
+  ];
+
+  const updates = {};
+
+  for (const [key, value] of Object.entries(req.body)) {
+    if (allowedFields.includes(key)) {
+      updates[key] = value;
+    }
+  }
+
+  const user = await User.findById(id);
+
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: "User not found.",
+    });
+  }
+
+  const updatedUser = await User.findByIdAndUpdate(
+    id,
+    { $set: updates },
+    {
+      new: true,
+      runValidators: true,
+    }
+  ).select("-password -refreshToken");
+
+  return res.status(200).json({
+    success: true,
+    message: "User updated successfully.",
+    user: updatedUser,
+  });
+});
+
+
+
+const getDashboardStats = asyncHandler(
+  async (req, res) => {
+    const [
+      totalStudents,
+      approvedStudents,
+      pendingStudents,
+      blockedStudents,
+
+      totalCourses,
+      publishedCourses,
+
+      totalBatches,
+      activeBatches,
+    ] = await Promise.all([
+      Student.countDocuments(),
+
+      User.countDocuments({
+        role: "student",
+        approvalStatus: "approved",
+      }),
+
+      User.countDocuments({
+        role: "student",
+        approvalStatus: "pending",
+      }),
+
+      User.countDocuments({
+        role: "student",
+        isBlocked: true,
+      }),
+
+      Course.countDocuments(),
+
+      Course.countDocuments({
+        status: "published",
+      }),
+
+      Batch.countDocuments(),
+
+      Batch.countDocuments({
+        status: "active",
+      }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+
+      stats: {
+        totalStudents,
+        approvedStudents,
+        pendingStudents,
+        blockedStudents,
+
+        totalCourses,
+        publishedCourses,
+
+        totalBatches,
+        activeBatches,
+      },
+    });
+  }
+);
 module.exports = rejectUser;
 module.exports = {
-  getUsers,approveUser,rejectUser,blockUser,unblockUser
+  getUsers,approveUser,rejectUser,blockUser,unblockUser,getUserById,updateUserByAdmin,getDashboardStats
 };

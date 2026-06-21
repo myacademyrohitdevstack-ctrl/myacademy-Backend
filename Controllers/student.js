@@ -5,6 +5,7 @@ const mongoose=require('mongoose')
 const Student  = require("../Modals/Student");
 const asyncHandler = require("../Utils/asyncHandler");
 const flatten = require("../Utils/flattenobject");
+const Batches = require("../Modals/Batches");
 const USER_FIELDS = [
   "fullName",
   "email",
@@ -30,9 +31,9 @@ const USER_FIELDS = [
     student,
   });
 });
+
 const updateProfile = asyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
-    
   try {
     session.startTransaction();
 
@@ -116,6 +117,21 @@ const updateProfile = asyncHandler(async (req, res) => {
     student,
   });
 });
+const getStudentBatches = asyncHandler(
+  async (req, res) => {
+    const batches = await Batches.find({
+      students: req.params.studentId,
+    })
+      .populate("course", "title")
+      .sort("-createdAt");
+
+    res.status(200).json({
+      success: true,
+      count: batches.length,
+      batches,
+    });
+  }
+);
 // export const getAllStudents = asyncHandler(async (req, res) => {
 //   const students = await Student.find()
 //     .populate("user", "fullName email profileImage")
@@ -127,4 +143,4 @@ const updateProfile = asyncHandler(async (req, res) => {
 //     students,
 //   });
 // });
-module.exports={getMyProfile,updateProfile,getStudentById}
+module.exports={getMyProfile,updateProfile,getStudentById,getStudentBatches}

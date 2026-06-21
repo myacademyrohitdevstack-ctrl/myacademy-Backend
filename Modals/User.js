@@ -46,12 +46,7 @@ const userSchema = new mongoose.Schema(
       enum: ["pending", "active", "blocked"],
       default: "active",
     },
-    status: {
-  type: String,
-  enum: ["active", "blocked"],
-  default: "active",
-},
-
+  
 blockedAt: {
   type: Date,
   default: null,
