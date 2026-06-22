@@ -20,11 +20,10 @@ const noteSchema = new mongoose.Schema(
     },
 
     file: {
-      public_id: {
+      publicId: {
         type: String,
         required: true,
       },
-
       url: {
         type: String,
         required: true,
@@ -33,6 +32,7 @@ const noteSchema = new mongoose.Schema(
       originalName: String,
 
       size: Number,
+      mimeType:String
     },
 
     createdBy: {

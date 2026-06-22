@@ -6,11 +6,11 @@ const upload = require("../Middleware/upload");
 const { createBatch, getBatches, getBatchById, updateBatch, deleteBatch, addStudentToBatch, getBatchStudents, removeStudentFromBatch } = require("../Controllers/batches");
 router.post("/:courseId/batches", createBatch);
 
-router.get("/:courseId/batches", getBatches);
+router.get("/:slug/batches", getBatches);
 
-router.get("/:courseId/batches/:batchId", getBatchById);
+router.get("/:batchId/byId", getBatchById);
 
-router.patch("/:courseId/batches/:batchId", updateBatch);
+router.patch("/:batchId/update", updateBatch);
 
 router.delete("/:courseId/batches/:batchId", deleteBatch);
 router.post(

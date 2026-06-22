@@ -1,5 +1,7 @@
 const Note = require("../Modals/Note");
 const Batch = require("../Modals/Batches");
+const asyncHandler = require("../Utils/asyncHandler");
+const uploadToCloudinary = require("../Utils/Cloudinary");
 
 const createNote = asyncHandler(async (req, res) => {
   const batch = await Batch.findById(
@@ -12,17 +14,20 @@ const createNote = asyncHandler(async (req, res) => {
       message: "Batch not found.",
     });
   }
-
+  const result = await uploadToCloudinary(
+    req.file.buffer,
+    "notes"
+  );
   const note = await Note.create({
     title: req.body.title,
     description: req.body.description,
     batch: batch._id,
-
     file: {
-      public_id: req.body.public_id,
-      url: req.body.url,
-      originalName: req.body.originalName,
-      size: req.body.size,
+       publicId: result.public_id,
+  url: result.secure_url,
+  originalName: result.original_filename,
+  size: result.bytes,
+  mimeType: result.resource_type,
     },
 
     createdBy: req.user._id,

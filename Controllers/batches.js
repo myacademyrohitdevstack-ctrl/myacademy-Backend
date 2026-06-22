@@ -1,4 +1,5 @@
 const Batch = require("../Modals/Batches");
+
 const Course = require("../Modals/Courses");
 const asyncHandler = require("../Utils/asyncHandler");
 const createBatch = asyncHandler(async (req, res) => {
@@ -26,12 +27,18 @@ const createBatch = asyncHandler(async (req, res) => {
   });
 });
 const getBatches = asyncHandler(async (req, res) => {
+
+  const course = await Course.findOne({
+    slug: req.params.slug,
+  })
+  console.log(course)
   const batches = await Batch.find({
-    course: req.params.courseId,
+    course:course._id
   })
     .populate("students")
+    .populate("course","title")
     .sort("-createdAt");
-
+console.log(batches)
   res.status(200).json({
     success: true,
     count: batches.length,
@@ -41,7 +48,8 @@ const getBatches = asyncHandler(async (req, res) => {
 const getBatchById = asyncHandler(async (req, res) => {
   const batch = await Batch.findById(req.params.batchId)
     .populate("course")
-    .populate("students");
+    .populate("students")
+    .populate("trainers")
 
   if (!batch) {
     return res.status(404).json({
@@ -122,6 +130,15 @@ const addStudentToBatch = asyncHandler(
     const student = await Student.findById(
       studentId
     );
+// also updated student count in couse 
+
+
+
+
+
+
+
+
 
     if (!student) {
       return res.status(404).json({

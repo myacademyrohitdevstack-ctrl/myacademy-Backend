@@ -2,6 +2,7 @@ const express = require("express");
 const protect = require("../Middleware/protect");
 const authorize = require("../Middleware/authorize");
 const { createNote, getNotes, getNoteById, updateNote, deleteNote } = require("../Controllers/note");
+const upload = require("../Middleware/upload");
 
 
 
@@ -9,7 +10,10 @@ const { createNote, getNotes, getNoteById, updateNote, deleteNote } = require(".
 
 const router = express.Router();
 router.post(
-  "/batches/:batchId/notes",
+  "/:batchId/add",
+  protect,
+  authorize("admin"),
+  upload.single("image"),
   createNote
 );
 

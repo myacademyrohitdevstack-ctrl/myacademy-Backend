@@ -79,7 +79,7 @@ const updateProfile = asyncHandler(async (req, res) => {
 
     const [updatedUser, updatedStudent] = await Promise.all([
       User.findById(userId).select(
-        "fullName email phone profileImage"
+        "fullName email phone profileImage role"
       ),
       Student.findOne({ user: userId }).select(
         "dateOfBirth gender languageLevel address guardian emergencyContact"

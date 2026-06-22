@@ -7,6 +7,6 @@ const { getMyProfile, updateProfile, getStudentBatches } = require("../Controlle
 const router = express.Router();
 router.get('/me',protect,authorize("student"),getMyProfile)
 router.get('/:studentId/batches',protect,authorize("student"),getStudentBatches)
-router.patch('/update',protect,authorize("student"),updateProfile)
+router.patch('/update',protect,authorize("student","admin"),updateProfile)
 
 module.exports = router;
