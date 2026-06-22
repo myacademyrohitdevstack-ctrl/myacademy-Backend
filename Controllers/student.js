@@ -122,7 +122,8 @@ const getStudentBatches = asyncHandler(
     const batches = await Batches.find({
       students: req.params.studentId,
     })
-      .populate("course", "title")
+      .populate("course")
+      .populate("trainers")
       .sort("-createdAt");
 
     res.status(200).json({

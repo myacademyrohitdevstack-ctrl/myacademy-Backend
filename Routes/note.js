@@ -18,7 +18,7 @@ router.post(
 );
 
 router.get(
-  "/batches/:batchId/notes",
+  "/:batchId/notes",
   getNotes
 );
 
@@ -33,7 +33,7 @@ router.patch(
 );
 
 router.delete(
-  "/batches/:batchId/notes/:noteId",
+  "/:noteId/delete",
   deleteNote
 );
 module.exports=router

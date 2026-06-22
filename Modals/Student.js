@@ -13,21 +13,6 @@ const studentSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-
-    enrolledCourses: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Course",
-      },
-    ],
-
-    batch: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Batch",
-      default: null,
-    },
-    
-
     admissionDate: {
       type: Date,
       default: Date.now,

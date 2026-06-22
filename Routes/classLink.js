@@ -11,7 +11,7 @@ router.post(
 );
 
 router.get(
-  "/batches/:batchId/class-links",
+  "/:batchId/class-links",
   getClassLinks
 );
 
@@ -26,7 +26,7 @@ router.patch(
 );
 
 router.delete(
-  "/batches/:batchId/class-links/:classLinkId",
+  "/:classLinkId/delete",
   deleteClassLink
 );
 module.exports=router

@@ -16,8 +16,10 @@ const createNote = asyncHandler(async (req, res) => {
   }
   const result = await uploadToCloudinary(
     req.file.buffer,
-    "notes"
+    "notes",
+    "raw"
   );
+  console.log(result)
   const note = await Note.create({
     title: req.body.title,
     description: req.body.description,
