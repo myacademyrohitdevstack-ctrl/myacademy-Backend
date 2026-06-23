@@ -34,11 +34,6 @@ const courseSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    studentCount: {
-      type: Number,
-      default: 0,
-    },
-
    durationInMonths: {
   type: Number,
 },
@@ -75,8 +70,33 @@ shortDescription: {
       ref: "User",
       required: true,
     },
+    category: {
+  type: String,
+  trim: true,
+},
+language: {
+  type: String,
+  default: "English",
+},
+enrollmentOpen: {
+  type: Boolean,
+  default: true,
+},
+tags: [{
+  type: String,
+  trim: true,
+}],
+seoTitle: String,
+seoDescription: String,
   },
+  
   { timestamps: true }
 );
+courseSchema.index({
+  status: 1,
+});
 
+courseSchema.index({
+  slug: 1,
+});
 module.exports= mongoose.model("Course", courseSchema);

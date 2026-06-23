@@ -28,6 +28,44 @@ const batchSchema = new mongoose.Schema(
       type: Number,
       default: 50,
     },
+    description: {
+  type: String,
+  default: "",
+},
+schedule: {
+  days: {
+    type: [String],
+    default: [],
+  },
+
+  startTime: {
+    type: String,
+    default: "",
+  },
+
+  endTime: {
+    type: String,
+    default: "",
+  },
+},
+meetingPlatform: {
+  type: String,
+  enum: ["zoom", "google-meet", "offline", "other"],
+  default: "zoom",
+},
+enrollmentOpen: {
+  type: Boolean,
+  default: true,
+},
+createdBy: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "User",
+  required: true,
+},
+isDeleted: {
+  type: Boolean,
+  default: false,
+},
 
     students: [
       {
@@ -50,7 +88,15 @@ const batchSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
+ 
 );
+ batchSchema.index({
+  course: 1,
+});
+
+batchSchema.index({
+  status: 1,
+});
 
 module.exports = mongoose.model("Batch", batchSchema);

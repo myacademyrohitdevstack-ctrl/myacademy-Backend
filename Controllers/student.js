@@ -6,6 +6,8 @@ const Student  = require("../Modals/Student");
 const asyncHandler = require("../Utils/asyncHandler");
 const flatten = require("../Utils/flattenobject");
 const Batches = require("../Modals/Batches");
+const Note = require("../Modals/Note");
+const ClassLink = require("../Modals/ClassLink");
 const USER_FIELDS = [
   "fullName",
   "email",
@@ -133,6 +135,61 @@ const getStudentBatches = asyncHandler(
     });
   }
 );
+const getStudentNotes = asyncHandler(async (req, res) => {
+  const { batchId } = req.params;
+
+  const batch = await Batches.findOne({
+    _id: batchId,
+    students: req.user._id,
+  });
+
+  if (!batch) {
+    return res.status(404).json({
+      success: false,
+      message: "Batch not found",
+    });
+  }
+
+  const notes = await Note.find({
+    batch: batchId,
+  })
+    .populate("createdBy", "fullName")
+    .sort("-createdAt");
+
+  res.status(200).json({
+    success: true,
+    count: notes.length,
+    notes,
+  });
+});
+
+const getStudentClassLinks = asyncHandler(async (req, res) => {
+  const { batchId } = req.params;
+
+  const batch = await Batches.findOne({
+    _id: batchId,
+    students: req.user._id,
+  });
+
+  if (!batch) {
+    return res.status(404).json({
+      success: false,
+      message: "Batch not found",
+    });
+  }
+
+  const classLinks = await ClassLink.find({
+    batch: batchId,
+  })
+    .populate("createdBy", "fullName")
+    .sort({ meetingDate: 1 });
+
+  res.status(200).json({
+    success: true,
+    count: classLinks.length,
+    classLinks,
+  });
+});
 // export const getAllStudents = asyncHandler(async (req, res) => {
 //   const students = await Student.find()
 //     .populate("user", "fullName email profileImage")
@@ -144,4 +201,4 @@ const getStudentBatches = asyncHandler(
 //     students,
 //   });
 // });
-module.exports={getMyProfile,updateProfile,getStudentById,getStudentBatches}
+module.exports={getMyProfile,updateProfile,getStudentById,getStudentBatches,getStudentNotes,getStudentClassLinks}

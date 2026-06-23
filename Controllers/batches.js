@@ -15,6 +15,7 @@ const createBatch = asyncHandler(async (req, res) => {
   const batch = await Batch.create({
     ...req.body,
     course: course._id,
+    createdBy:req.user._id
   });
 
   course.batches.push(batch._id);

@@ -13,7 +13,7 @@ router.post(
   "/:batchId/add",
   protect,
   authorize("admin"),
-  upload.single("image"),
+  upload.single("file"),
   createNote
 );
 

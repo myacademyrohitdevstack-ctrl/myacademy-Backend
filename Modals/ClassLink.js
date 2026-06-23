@@ -29,6 +29,53 @@ const classLinkSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+durationMinutes: {
+  type: Number,
+  default: 60,
+},
+status: {
+  type: String,
+  enum: [
+    "scheduled",
+    "live",
+    "completed",
+    "cancelled"
+  ],
+  default: "scheduled",
+},
+recordingUrl: {
+  type: String,
+  default: "",
+},
+recordingThumbnail: {
+  type: String,
+  default: "",
+},
+platform: {
+  type: String,
+  enum: [
+    "zoom",
+    "google-meet",
+    "teams",
+    "custom"
+  ],
+  default: "zoom",
+},
+attendanceEnabled: {
+  type: Boolean,
+  default: false,
+},
+notes: [{
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Note",
+}],
+classNumber: {
+  type: Number,
+},
+isDeleted: {
+  type: Boolean,
+  default: false,
+},
 
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -40,7 +87,14 @@ const classLinkSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+classLinkSchema.index({
+  batch: 1,
+  meetingDate: 1,
+});
 
+classLinkSchema.index({
+  status: 1,
+});
 module.exports = mongoose.model(
   "ClassLink",
   classLinkSchema

@@ -4,7 +4,7 @@ const protect = require("../Middleware/protect");
 const authorize = require("../Middleware/authorize");
 const upload = require("../Middleware/upload");
 const { createBatch, getBatches, getBatchById, updateBatch, deleteBatch, addStudentToBatch, getBatchStudents, removeStudentFromBatch } = require("../Controllers/batches");
-router.post("/:courseId/batches", createBatch);
+router.post("/:courseId/batches",protect, createBatch);
 
 router.get("/:slug/batches", getBatches);
 

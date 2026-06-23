@@ -13,7 +13,30 @@ const noteSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-
+type: {
+  type: String,
+  enum: [
+    "pdf",
+    "ppt",
+    "doc",
+    "image",
+    "video",
+    "other"
+  ],
+  default: "pdf",
+},
+visibility: {
+  type: String,
+  enum: ["public", "private"],
+  default: "public",
+},
+noteNumber: {
+  type: Number,
+},
+isDeleted: {
+  type: Boolean,
+  default: false,
+},
     description: {
       type: String,
       default: "",
@@ -45,5 +68,13 @@ const noteSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+noteSchema.index({
+  batch: 1,
+  createdAt: -1,
+});
+
+noteSchema.index({
+  course: 1,
+});
 
 module.exports = mongoose.model("Note", noteSchema);
