@@ -19,7 +19,7 @@ const createNote = asyncHandler(async (req, res) => {
     "notes",
     "raw"
   );
-  console.log(result)
+const existingnotes=await Note.countDocuments({ batch: batch._id})
   const note = await Note.create({
     title: req.body.title,
     description: req.body.description,
@@ -31,7 +31,7 @@ const createNote = asyncHandler(async (req, res) => {
   size: result.bytes,
   mimeType: result.resource_type,
     },
-
+  noteNumber:existingnotes+1,
     createdBy: req.user._id,
   });
 

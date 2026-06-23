@@ -36,6 +36,7 @@ app.use("/api/courses", require("./Routes/courses"));
 app.use("/api/batches", require("./Routes/batches"));
 app.use("/api/class", require("./Routes/classLink"));
 app.use("/api/notes", require("./Routes/note"));
+app.use("/api/announcements", require("./Routes/announcement"));
 
 app.use((req, res) => {
   res.status(404).json({ message: "Route not found" });

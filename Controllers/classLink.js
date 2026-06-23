@@ -14,7 +14,7 @@ const createClassLink = asyncHandler(async (req, res) => {
       message: "Batch not found.",
     });
   }
-
+  const existingClassLinks=await ClassLink.countDocuments({batch: batch._id});
   const classLink = await ClassLink.create({
     title: req.body.title,
     meetingLink: req.body.meetingLink,
@@ -22,6 +22,7 @@ const createClassLink = asyncHandler(async (req, res) => {
     description: req.body.description,
     batch: batch._id,
     createdBy: req.user._id,
+    classNumber:existingClassLinks+1
   });
 
   res.status(201).json({

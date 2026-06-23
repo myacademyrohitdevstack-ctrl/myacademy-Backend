@@ -8,6 +8,8 @@ const flatten = require("../Utils/flattenobject");
 const Batches = require("../Modals/Batches");
 const Note = require("../Modals/Note");
 const ClassLink = require("../Modals/ClassLink");
+const Announcement = require("../Modals/Announcement");
+
 const USER_FIELDS = [
   "fullName",
   "email",
@@ -190,6 +192,125 @@ const getStudentClassLinks = asyncHandler(async (req, res) => {
     classLinks,
   });
 });
+const getStudentBatchById = asyncHandler(async (req, res) => {
+  const { batchId } = req.params;
+
+  const batch = await Batches.findOne({
+    _id: batchId,
+    students: req.user._id,
+  }).populate("course","title")
+  .populate("trainers","fullName")
+
+  if (!batch) {
+    return res.status(404).json({
+      success: false,
+      message: "Batch not found",
+    });
+  }
+
+
+  res.status(200).json({
+    success: true,
+    batch,
+  });
+});
+
+const getStudentAnnouncements =
+  asyncHandler(async (req, res) => {
+   const announcements = await Announcement.find({
+  isDeleted: false,
+  isPublished:true,
+  $or: [
+    {
+      targetType: "system",
+    },
+    {
+      targetType: "batch",
+      batch: { $in: req.params.batchId },
+    },
+    {
+      targetType: "course",
+      course: { $in: req.params.courseId },
+    },
+  ],
+})
+.sort({
+  pinned: -1,
+  createdAt: -1,
+});
+
+    res.status(200).json({
+      success: true,
+      count: announcements.length,
+      announcements,
+    });
+  });
+const getLoggedStudentAllAnnouncements =
+  asyncHandler(async (req, res) => {
+    const batches = await Batches.find({
+  students: req.user._id,
+}).select("_id course");
+console.log(batches)
+const batchIds = batches.map((b) => b._id);
+
+const courseIds = [
+  ...new Set(
+    batches.map((b) => b.course?.toString())
+  ),
+];
+
+   const announcements = await Announcement.find({
+  isDeleted: false,
+  isPublished:true,
+  $or: [
+    {
+      targetType: "system",
+    },
+    {
+      targetType: "batch",
+      batch: { $in: batchIds },
+    },
+    {
+      targetType: "course",
+      course: { $in: courseIds },
+    },
+  ],
+})
+.sort({
+  pinned: -1,
+  createdAt: -1,
+});
+
+    res.status(200).json({
+      success: true,
+      count: announcements.length,
+      announcements,
+    });
+  });
+const getLoggedStudentAllClasses =
+  asyncHandler(async (req, res) => {
+    const batches = await Batches.find({
+  students: req.user._id,
+});
+
+const batchIds = batches.map((b) => b._id);
+
+   const classes = await ClassLink.find({
+  isDeleted: false,
+  batch:{$in:batchIds},
+ meetingDate: { $gte: new Date() },
+})
+.sort({
+meetingDate:-1
+}).limit(3);
+
+    res.status(200).json({
+      success: true,
+      count: classes.length,
+      classes,
+    });
+  });
+
 // export const getAllStudents = asyncHandler(async (req, res) => {
 //   const students = await Student.find()
 //     .populate("user", "fullName email profileImage")
@@ -201,4 +322,4 @@ const getStudentClassLinks = asyncHandler(async (req, res) => {
 //     students,
 //   });
 // });
-module.exports={getMyProfile,updateProfile,getStudentById,getStudentBatches,getStudentNotes,getStudentClassLinks}
+module.exports={getMyProfile,getLoggedStudentAllClasses,getStudentAnnouncements,updateProfile,getStudentById,getLoggedStudentAllAnnouncements,getStudentBatches,getStudentNotes,getStudentClassLinks,getStudentBatchById}
