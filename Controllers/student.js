@@ -322,4 +322,56 @@ meetingDate:-1
 //     students,
 //   });
 // });
-module.exports={getMyProfile,getLoggedStudentAllClasses,getStudentAnnouncements,updateProfile,getStudentById,getLoggedStudentAllAnnouncements,getStudentBatches,getStudentNotes,getStudentClassLinks,getStudentBatchById}
+
+
+const getLoggedStudentStatics =
+  asyncHandler(async (req, res) => {
+
+    const studentId = req.user._id;
+
+    const batchList = await Batches.find({
+      students: studentId,
+    }).select("_id course");
+
+    const batchIds = batchList.map((b) => b._id);
+
+    const courseIds = [
+      ...new Set(
+        batchList
+          .map((b) => b.course?.toString())
+          .filter(Boolean)
+      ),
+    ];
+
+    const [
+      classesCount,
+      notesCount,
+      pdfsCount,
+    ] = await Promise.all([
+      ClassLink.countDocuments({
+        batch: { $in: batchIds },
+      }),
+
+      Note.countDocuments({
+        batch: { $in: batchIds },
+      }),
+
+      Note.countDocuments({
+        batch: { $in: batchIds },
+        fileType: "pdf",
+      }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      statics: {
+        batches: batchList.length,
+        courses: courseIds.length,
+        classes: classesCount,
+        notes: notesCount,
+        pdfs: pdfsCount,
+      },
+    })
+  })
+
+module.exports={getMyProfile,getLoggedStudentAllClasses,getLoggedStudentStatics,getStudentAnnouncements,updateProfile,getStudentById,getLoggedStudentAllAnnouncements,getStudentBatches,getStudentNotes,getStudentClassLinks,getStudentBatchById}

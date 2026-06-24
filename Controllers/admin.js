@@ -3,8 +3,9 @@ const Teacher = require("../Modals/Teacher");
 const sendEmail = require("../Utils/sendEmail");
 const asyncHandler = require("../Utils/asyncHandler");
 const User = require("../Modals/User");
+const ClassLink = require("../Modals/ClassLink");
 
-
+const Announcement = require("../Modals/Announcement");
 
 const Course = require("../Modals/Courses");
 const Batch = require("../Modals/Batches");
@@ -503,16 +504,16 @@ const updateUserByAdmin = asyncHandler(async (req, res) => {
 
 
 const getDashboardStats = asyncHandler(
+
   async (req, res) => {
     const [
       totalStudents,
       approvedStudents,
+      totalTeachers,
       pendingStudents,
       blockedStudents,
-
       totalCourses,
       publishedCourses,
-
       totalBatches,
       activeBatches,
     ] = await Promise.all([
@@ -520,6 +521,10 @@ const getDashboardStats = asyncHandler(
 
       User.countDocuments({
         role: "student",
+        approvalStatus: "approved",
+      }),
+      User.countDocuments({
+        role: "teacher",
         approvalStatus: "approved",
       }),
 
@@ -554,7 +559,7 @@ const getDashboardStats = asyncHandler(
         approvedStudents,
         pendingStudents,
         blockedStudents,
-
+totalTeachers,
         totalCourses,
         publishedCourses,
 
@@ -564,7 +569,69 @@ const getDashboardStats = asyncHandler(
     });
   }
 );
-module.exports = rejectUser;
+
+
+const getRecentEnrollments = asyncHandler(async (req, res) => {
+  const batches = await Batch.find()
+    .populate("course", "title")
+    .populate(
+      "students",
+      "fullName email status approvalStatus createdAt"
+    )
+    .sort({ createdAt: -1 });
+
+ const enrollmentMap = new Map();
+
+batches.forEach((batch) => {
+  batch.students.forEach((student) => {
+    if (!enrollmentMap.has(student._id.toString())) {
+      enrollmentMap.set(student._id.toString(), {
+        id: student._id,
+        name: student.fullName,
+        batch: batch.name,
+        course: batch.course?.title || "N/A",
+        status: student.approvalStatus,
+        enrolledAt: student.createdAt,
+      });
+    }
+  });
+});
+
+const enrollments = Array.from(
+  enrollmentMap.values()
+);
+
+  enrollments.sort(
+    (a, b) => new Date(b.enrolledAt) - new Date(a.enrolledAt)
+  );
+
+  return res.status(200).json({
+    success: true,
+    count: enrollments.length,
+    enrollments: enrollments.slice(0, 10), // latest 20
+  });
+});
+const getallClasses = asyncHandler(async (req, res) => {
+
+const classes=await ClassLink.find({isDeleted:false}).sort({meetingDate:-1}).limit(5)
+
+  return res.status(200).json({
+    success: true,
+    classes, // latest 20
+  });
+});
+const getallAnnouncement = asyncHandler(async (req, res) => {
+
+const announcements=await Announcement.find({isDeleted:false}).sort({meetingDate:-1}).limit(5)
+
+  return res.status(200).json({
+    success: true,
+    announcements, // latest 20
+  });
+});
+
+
+
 module.exports = {
-  getUsers,approveUser,rejectUser,blockUser,unblockUser,getUserById,updateUserByAdmin,getDashboardStats
+  getUsers,approveUser,getallClasses,getallAnnouncement ,getRecentEnrollments,rejectUser,blockUser,unblockUser,getUserById,updateUserByAdmin,getDashboardStats
 };

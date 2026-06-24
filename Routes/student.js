@@ -1,7 +1,7 @@
 const express = require("express");
 const protect = require("../Middleware/protect");
 const authorize = require("../Middleware/authorize");
-const { getMyProfile, updateProfile, getStudentBatches, getStudentNotes, getStudentClassLinks, getStudentBatchById, getStudentAnnouncements, getLoggedStudentAllAnnouncements, getLoggedStudentAllClasses } = require("../Controllers/student");
+const { getMyProfile, updateProfile, getStudentBatches, getStudentNotes, getStudentClassLinks, getStudentBatchById, getStudentAnnouncements, getLoggedStudentAllAnnouncements, getLoggedStudentAllClasses, getLoggedStudentStatics } = require("../Controllers/student");
 
 
 const router = express.Router();
@@ -12,6 +12,7 @@ router.get('/:batchId/class-links',protect,authorize("student"),getStudentClassL
 router.get('/:batchId/batch',protect,authorize("student"),getStudentBatchById)
 router.get('/:courseId/:batchId/announcements',protect,authorize("student"),getStudentAnnouncements)
 router.get('/announcements',protect,authorize("student"),getLoggedStudentAllAnnouncements)
+router.get('/statics',protect,authorize("student"),getLoggedStudentStatics)
 router.get('/classes',protect,authorize("student"),getLoggedStudentAllClasses)
 router.patch('/update',protect,authorize("student","admin"),updateProfile)
 

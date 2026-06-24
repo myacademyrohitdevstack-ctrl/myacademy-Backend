@@ -1,6 +1,6 @@
 /* Importing the required modules. */
 const express = require("express");
-const { createUser, sendOtp, verifyOtp, login, refreshAccessToken, logout } = require("../Controllers/auth");
+const { createUser, sendOtp, verifyOtp, login, refreshAccessToken, logout, updatePassword } = require("../Controllers/auth");
 const protect = require("../Middleware/protect");
 const router = express.Router();
 
@@ -24,6 +24,7 @@ router.post(
   "/logout",protect,logout
 );
 router.post("/refresh-token", refreshAccessToken);
+router.patch("/update-password",protect, updatePassword);
 
 /* The above code is a login route. */
 
