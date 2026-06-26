@@ -174,14 +174,10 @@ const getBatchStudents = asyncHandler(
   async (req, res) => {
     const batch = await Batch.findById(
       req.params.batchId
-    ).populate({
-      path: "students",
-      populate: {
-        path: "user",
-        select:
-          "fullName email phone profileImage",
-      },
-    });
+    ).populate(
+  "students",
+  "fullName email phone profileImage"
+);
 
     if (!batch) {
       return res.status(404).json({

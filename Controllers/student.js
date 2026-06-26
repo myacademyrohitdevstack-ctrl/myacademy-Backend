@@ -9,6 +9,7 @@ const Batches = require("../Modals/Batches");
 const Note = require("../Modals/Note");
 const ClassLink = require("../Modals/ClassLink");
 const Announcement = require("../Modals/Announcement");
+const Attendance = require("../Modals/Attendence");
 
 const USER_FIELDS = [
   "fullName",
@@ -374,4 +375,91 @@ const getLoggedStudentStatics =
     })
   })
 
-module.exports={getMyProfile,getLoggedStudentAllClasses,getLoggedStudentStatics,getStudentAnnouncements,updateProfile,getStudentById,getLoggedStudentAllAnnouncements,getStudentBatches,getStudentNotes,getStudentClassLinks,getStudentBatchById}
+
+const getStudentAttendanceDashboard = asyncHandler(async (req, res) => {
+  const studentId = req.user._id;
+
+  const attendance = await Attendance.find({
+    "records.student": studentId,
+  })
+    .select("date records")
+    .sort({ date: -1 });
+
+  let present = 0;
+  let absent = 0;
+
+  const recentAttendance = [];
+
+  attendance.forEach((item) => {
+    const record = item.records.find(
+      (r) => r.student.toString() === studentId.toString()
+    );
+
+    if (!record) return;
+
+    if (record.status === "present") {
+      present++;
+    } else {
+      absent++;
+    }
+
+    recentAttendance.push({
+      attendanceId: item._id,
+      date: item.date,
+      status: record.status,
+    });
+  });
+
+  const totalClasses = present + absent;
+
+  const attendancePercentage =
+    totalClasses === 0
+      ? 0
+      : Math.round((present / totalClasses) * 100);
+
+  const requiredAttendance = 75;
+
+  const eligible =
+    attendancePercentage >= requiredAttendance;
+
+  // Current Present Streak
+  let currentStreak = 0;
+
+  for (const item of recentAttendance) {
+    if (item.status === "present") {
+      currentStreak++;
+    } else {
+      break;
+    }
+  }
+
+  const lastAbsent = recentAttendance.find(
+    (item) => item.status === "absent"
+  );
+
+  return res.status(200).json({
+    success: true,
+
+    stats: {
+      attendancePercentage,
+      present,
+      absent,
+      totalClasses,
+    },
+
+    progress: {
+      requiredAttendance,
+      eligible,
+    },
+
+    recentAttendance: recentAttendance.slice(0, 10),
+
+    insights: {
+      currentStreak,
+      lastAbsent: lastAbsent?.date || null,
+    },
+  });
+});
+
+
+module.exports={getMyProfile,getStudentAttendanceDashboard,getLoggedStudentAllClasses,getLoggedStudentStatics,getStudentAnnouncements,updateProfile,getStudentById,getLoggedStudentAllAnnouncements,getStudentBatches,getStudentNotes,getStudentClassLinks,getStudentBatchById}
