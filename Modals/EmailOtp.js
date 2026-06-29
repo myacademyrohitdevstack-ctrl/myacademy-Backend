@@ -9,6 +9,7 @@ const emailOtpSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+   
 
     otp: {
       type: String,

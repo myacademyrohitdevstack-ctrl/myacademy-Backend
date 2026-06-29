@@ -4,24 +4,40 @@ const asyncHandler = require("../Utils/asyncHandler");
 const uploadToCloudinary = require("../Utils/Cloudinary");
 
 const createNote = asyncHandler(async (req, res) => {
-  const batch = await Batch.findById(
-    req.params.batchId
-  );
-
+  const batch = await Batch.findOne({
+   _id: req.params.batchId,
+   academyId:req.academy._id,
+    isDeleted: false,
+})
   if (!batch) {
     return res.status(404).json({
       success: false,
       message: "Batch not found.",
     });
   }
+  if (!req.file) {
+  return res.status(400).json({
+    success: false,
+    message: "Note file is required.",
+  });
+}
   const result = await uploadToCloudinary(
     req.file.buffer,
     "notes",
     "raw"
   );
-const existingnotes=await Note.countDocuments({ batch: batch._id})
+const lastNote = await Note.findOne({
+  batch: batch._id,
+  academyId: req.academy._id,
+   isDeleted: false,
+})
+.sort({ noteNumber: -1 })
+.select("noteNumber");
+
+const noteNumber = lastNote ? lastNote.noteNumber + 1 : 1;
   const note = await Note.create({
     title: req.body.title,
+    academyId:req.academy._id,
     description: req.body.description,
     batch: batch._id,
     file: {
@@ -31,7 +47,7 @@ const existingnotes=await Note.countDocuments({ batch: batch._id})
   size: result.bytes,
   mimeType: result.resource_type,
     },
-  noteNumber:existingnotes+1,
+  noteNumber,
     createdBy: req.user._id,
   });
 
@@ -42,8 +58,22 @@ const existingnotes=await Note.countDocuments({ batch: batch._id})
   });
 });
 const getNotes = asyncHandler(async (req, res) => {
+  const batch = await Batch.findOne({
+  _id: req.params.batchId,
+  academyId: req.academy._id,
+   isDeleted: false,
+});
+
+if (!batch) {
+  return res.status(404).json({
+    success: false,
+    message: "Batch not found.",
+  });
+}
   const notes = await Note.find({
     batch: req.params.batchId,
+    academyId:req.academy._id,
+     isDeleted: false,
   })
     .populate("createdBy", "fullName")
     .sort("-createdAt");
@@ -55,9 +85,11 @@ const getNotes = asyncHandler(async (req, res) => {
   });
 });
 const getNoteById = asyncHandler(async (req, res) => {
-  const note = await Note.findById(
-    req.params.noteId
-  );
+  const note = await Note.findOne({
+   _id: req.params.noteId,
+   academyId:req.academy._id,
+    isDeleted: false,
+});
 
   if (!note) {
     return res.status(404).json({
@@ -72,9 +104,11 @@ const getNoteById = asyncHandler(async (req, res) => {
   });
 });
 const updateNote = asyncHandler(async (req, res) => {
-  const note = await Note.findByIdAndUpdate(
-    req.params.noteId,
-    {
+  const note = await Note.findOneAndUpdate({
+   _id: req.params.noteId,
+   academyId:req.academy._id,
+    isDeleted: false,
+  },{
       $set: req.body,
     },
     {
@@ -97,16 +131,28 @@ const updateNote = asyncHandler(async (req, res) => {
   });
 });
 const deleteNote = asyncHandler(async (req, res) => {
-  const note = await Note.findByIdAndDelete(
-    req.params.noteId
-  );
-
-  if (!note) {
-    return res.status(404).json({
-      success: false,
-      message: "Note not found.",
-    });
+const note = await Note.findOneAndUpdate(
+  {
+    _id: req.params.noteId,
+    academyId: req.academy._id,
+    isDeleted: false,
+  },
+  {
+    isDeleted: true,
+    deletedAt:new Date(),
+    deletedBy:req.user._id
+  },
+  {
+    new: true,
   }
+);
+
+if (!note) {
+  return res.status(404).json({
+    success: false,
+    message: "Note not found.",
+  });
+}
 
   res.status(200).json({
     success: true,

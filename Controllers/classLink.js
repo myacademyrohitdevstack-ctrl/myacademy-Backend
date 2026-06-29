@@ -4,9 +4,11 @@ const asyncHandler = require("../Utils/asyncHandler");
 
 const createClassLink = asyncHandler(async (req, res) => {
  
-  const batch = await Batch.findById(
-    req.params.batchId
-  );
+  const batch = await Batch.findOne({
+   _id: req.params.batchId,
+   academyId:req.academy._id,
+     isDeleted:false
+});
 
   if (!batch) {
     return res.status(404).json({
@@ -14,7 +16,11 @@ const createClassLink = asyncHandler(async (req, res) => {
       message: "Batch not found.",
     });
   }
-  const existingClassLinks=await ClassLink.countDocuments({batch: batch._id});
+  const existingClassLinks=await ClassLink.countDocuments({
+    batch: batch._id,
+    academyId:req.academy._id,
+      isDeleted:false
+  });
   const classLink = await ClassLink.create({
     title: req.body.title,
     meetingLink: req.body.meetingLink,
@@ -22,7 +28,8 @@ const createClassLink = asyncHandler(async (req, res) => {
     description: req.body.description,
     batch: batch._id,
     createdBy: req.user._id,
-    classNumber:existingClassLinks+1
+    classNumber:existingClassLinks+1,
+    academyId:req.academy._id
   });
 
   res.status(201).json({
@@ -33,8 +40,22 @@ const createClassLink = asyncHandler(async (req, res) => {
 });
 const getClassLinks = asyncHandler(
   async (req, res) => {
+    const batch = await Batch.findOne({
+  _id: req.params.batchId,
+  academyId: req.academy._id,
+    isDeleted:false
+});
+
+if (!batch) {
+  return res.status(404).json({
+    success: false,
+    message: "Batch not found.",
+  });
+}
     const classLinks = await ClassLink.find({
       batch: req.params.batchId,
+      academyId:req.academy._id,
+        isDeleted:false
     })
       .populate("createdBy", "fullName")
       .sort({ meetingDate: 1 });
@@ -48,9 +69,12 @@ const getClassLinks = asyncHandler(
 );
 const getClassLinkById = asyncHandler(
   async (req, res) => {
-    const classLink = await ClassLink.findById(
-      req.params.classLinkId
-    );
+    const classLink = await ClassLink.findOne({
+      _id:req.params.classLinkId,
+      academyId:req.academy._id,
+        isDeleted:false
+
+  });
 
     if (!classLink) {
       return res.status(404).json({
@@ -68,9 +92,11 @@ const getClassLinkById = asyncHandler(
 const updateClassLink = asyncHandler(
   async (req, res) => {
     const classLink =
-      await ClassLink.findByIdAndUpdate(
-        req.params.classLinkId,
-        {
+      await ClassLink.findOneAndUpdate({
+        _id:req.params.classLinkId,
+        academyId:req.academy._id,
+          isDeleted:false
+      },{
           $set: req.body,
         },
         {
@@ -94,25 +120,34 @@ const updateClassLink = asyncHandler(
     });
   }
 );
-const deleteClassLink = asyncHandler(
-  async (req, res) => {
-    const classLink =
-      await ClassLink.findByIdAndDelete(
-        req.params.classLinkId
-      );
-
-    if (!classLink) {
-      return res.status(404).json({
-        success: false,
-        message: "Class link not found.",
-      });
+const deleteClassLink = asyncHandler(async (req, res) => {
+  const classLink = await ClassLink.findOneAndUpdate(
+    {
+      _id: req.params.classLinkId,
+      academyId: req.academy._id,
+      isDeleted: false,
+    },
+    {
+      isDeleted: true,
+      deletedAt: new Date(),
+      deletedBy: req.user._id,
+    },
+    {
+      new: true,
+      runValidators: true,
     }
+  );
 
-    res.status(200).json({
-      success: true,
-      message:
-        "Class link deleted successfully.",
+  if (!classLink) {
+    return res.status(404).json({
+      success: false,
+      message: "Class link not found.",
     });
   }
-);
+
+  return res.status(200).json({
+    success: true,
+    message: "Class link deleted successfully.",
+  });
+});
 module.exports={createClassLink,getClassLinks,getClassLinkById,deleteClassLink,updateClassLink}

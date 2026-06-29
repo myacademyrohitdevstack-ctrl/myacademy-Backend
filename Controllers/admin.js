@@ -65,10 +65,12 @@ const getUsers = asyncHandler(async (req, res) => {
     default:
       sortQuery.createdAt = -1;
   }
+ filter.academyId = req.academy._id;
+filter.isDeleted = false;
 
   const [users, totalUsers] = await Promise.all([
     User.find(filter)
-      .select("-password -refreshTokens")
+      .select("-password -refreshToken")
       .sort(sortQuery)
       .skip(skip)
       .limit(perPage),
@@ -100,7 +102,11 @@ const approveUser = asyncHandler(async (req, res) => {
   try {
     session.startTransaction();
 
-     user = await User.findById(id).session(session);
+     user = await User.findOne({
+  _id: id,
+  academyId: req.academy._id,
+  isDeleted:false
+}).session(session);
 
     if (!user) {
       await session.abortTransaction();
@@ -119,36 +125,37 @@ const approveUser = asyncHandler(async (req, res) => {
     }
 
     if (user.role === "student") {
-      const existingStudent = await Student.findOne({
-        user: user._id,
-      }).session(session);
+    const existingStudent = await Student.findOne({
+  user: user._id,
+  academyId: req.academy._id,
+  isDeleted: false,
+}).session(session);
 
-      if (!existingStudent) {
-        await Student.create(
-          [
-            {
-              user: user._id,
-            },
-          ],
-          { session }
-        );
-      }
+if (!existingStudent) {
+  await Student.create(
+    [
+      {
+        user: user._id,
+        academyId: req.academy._id,
+      },
+    ],
+    { session }
+  );
+}
     }
 
     if (user.role === "teacher") {
       const existingTeacher = await Teacher.findOne({
         user: user._id,
+          isDeleted:false,
+          academyId:req.academy._id
       }).session(session);
 
       if (!existingTeacher) {
-        await Teacher.create(
-          [
-            {
-              user: user._id,
-            },
-          ],
-          { session }
-        );
+       await Teacher.create([{
+  user: user._id,
+  academyId: req.academy._id
+}], { session });
       }
     }
 
@@ -202,7 +209,11 @@ const rejectUser = asyncHandler(async (req, res) => {
   try {
     session.startTransaction();
 
-    user = await User.findById(id).session(session);
+user = await User.findOne({
+  _id: id,
+  academyId: req.academy._id,
+  isDeleted: false,
+}).session(session);
 
     if (!user) {
       await session.abortTransaction();
@@ -288,7 +299,11 @@ const blockUser = asyncHandler(async (req, res) => {
   try {
     session.startTransaction();
 
-    user = await User.findById(id).session(session);
+    user = await User.findOne({
+  _id: id,
+  academyId: req.academy._id,
+    isDeleted:false
+}).session(session)
 
     if (!user) {
       await session.abortTransaction();
@@ -372,7 +387,11 @@ const unblockUser = asyncHandler(async (req, res) => {
   try {
     session.startTransaction();
 
-    user = await User.findById(id).session(session);
+    user = await User.findOne({
+  _id: id,
+  academyId: req.academy._id,
+    isDeleted:false
+}).session(session)
 
     if (!user) {
       await session.abortTransaction();
@@ -443,8 +462,11 @@ const getUserById = asyncHandler(async (req, res) => {
     });
   }
 
-  const user = await User.findById(id)
-    .select("-password -refreshToken");
+const user = await User.findOne({
+  _id: id,
+  academyId: req.academy._id,
+    isDeleted:false
+}).select("-password -refreshToken");
 
   if (!user) {
     return res.status(404).json({
@@ -476,7 +498,11 @@ const updateUserByAdmin = asyncHandler(async (req, res) => {
     }
   }
 
-  const user = await User.findById(id);
+const user = await User.findOne({
+  _id: id,
+  academyId: req.academy._id,
+  isDeleted: false,
+});
 
   if (!user) {
     return res.status(404).json({
@@ -485,14 +511,18 @@ const updateUserByAdmin = asyncHandler(async (req, res) => {
     });
   }
 
-  const updatedUser = await User.findByIdAndUpdate(
-    id,
-    { $set: updates },
-    {
-      new: true,
-      runValidators: true,
-    }
-  ).select("-password -refreshToken");
+const updatedUser = await User.findOneAndUpdate(
+  {
+    _id: id,
+    academyId: req.academy._id,
+      isDeleted:false
+  },
+  { $set: updates },
+  {
+    new: true,
+    runValidators: true,
+  }
+).select("-password -refreshToken");
 
   return res.status(200).json({
     success: true,
@@ -506,6 +536,7 @@ const updateUserByAdmin = asyncHandler(async (req, res) => {
 const getDashboardStats = asyncHandler(
 
   async (req, res) => {
+    const academyId = req.academy._id;
     const [
       totalStudents,
       approvedStudents,
@@ -517,38 +548,50 @@ const getDashboardStats = asyncHandler(
       totalBatches,
       activeBatches,
     ] = await Promise.all([
-      Student.countDocuments(),
+    Student.countDocuments({ academyId,  isDeleted:false }),
 
-      User.countDocuments({
-        role: "student",
-        approvalStatus: "approved",
-      }),
-      User.countDocuments({
-        role: "teacher",
-        approvalStatus: "approved",
-      }),
+User.countDocuments({
+  academyId,
+  role: "student",
+  approvalStatus: "approved",
+    isDeleted:false
+}),
 
-      User.countDocuments({
-        role: "student",
-        approvalStatus: "pending",
-      }),
+User.countDocuments({
+  academyId,
+  role: "teacher",
+  approvalStatus: "approved",
+    isDeleted:false
+}),
 
-      User.countDocuments({
-        role: "student",
-        isBlocked: true,
-      }),
+User.countDocuments({
+  academyId,
+  role: "student",
+  approvalStatus: "pending",
+    isDeleted:false
+}),
 
-      Course.countDocuments(),
+User.countDocuments({
+  academyId,
+  status: "blocked",
+    isDeleted:false
+}),
 
-      Course.countDocuments({
-        status: "published",
-      }),
+Course.countDocuments({ academyId,  isDeleted:false }),
 
-      Batch.countDocuments(),
+Course.countDocuments({
+  academyId,
+  status: "published",
+    isDeleted:false
+}),
 
-      Batch.countDocuments({
-        status: "active",
-      }),
+Batch.countDocuments({ academyId,  isDeleted:false }),
+
+Batch.countDocuments({
+  academyId,
+  status: "active",
+    isDeleted:false
+}),
     ]);
 
     res.status(200).json({
@@ -572,13 +615,13 @@ totalTeachers,
 
 
 const getRecentEnrollments = asyncHandler(async (req, res) => {
-  const batches = await Batch.find()
-    .populate("course", "title")
-    .populate(
-      "students",
-      "fullName email status approvalStatus createdAt"
-    )
-    .sort({ createdAt: -1 });
+  const batches = await Batch.find({
+  academyId: req.academy._id,
+    isDeleted:false
+})
+.populate("course", "title")
+.populate("students", "fullName email status approvalStatus createdAt")
+.sort({ createdAt: -1 });
 
  const enrollmentMap = new Map();
 
@@ -613,7 +656,12 @@ const enrollments = Array.from(
 });
 const getallClasses = asyncHandler(async (req, res) => {
 
-const classes=await ClassLink.find({isDeleted:false}).sort({meetingDate:-1}).limit(5)
+const classes = await ClassLink.find({
+  academyId: req.academy._id,
+  isDeleted: false
+})
+.sort({ meetingDate: -1 })
+.limit(5);
 
   return res.status(200).json({
     success: true,
@@ -622,8 +670,15 @@ const classes=await ClassLink.find({isDeleted:false}).sort({meetingDate:-1}).lim
 });
 const getallAnnouncement = asyncHandler(async (req, res) => {
 
-const announcements=await Announcement.find({isDeleted:false}).sort({meetingDate:-1}).limit(5)
-
+const announcements = await Announcement.find({
+  academyId: req.academy._id,
+  isDeleted: false
+})
+.sort({
+    pinned: -1,
+    createdAt: -1,
+})
+.limit(5);
   return res.status(200).json({
     success: true,
     announcements, // latest 20

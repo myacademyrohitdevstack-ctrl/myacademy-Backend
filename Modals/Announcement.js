@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 
 const announcementSchema = new mongoose.Schema(
   {
+    academyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Academy",
+      required: true,
+    },
     title: {
       type: String,
       required: true,
@@ -48,20 +53,7 @@ const announcementSchema = new mongoose.Schema(
       default: "normal",
     },
 
-    // attachment: {
-    //   publicId: {
-    //     type: String,
-    //     default: "",
-    //   },
-    //   url: {
-    //     type: String,
-    //     default: "",
-    //   },
-    //   fileName: {
-    //     type: String,
-    //     default: "",
-    //   },
-    // },
+   
 
     publishAt: {
       type: Date,
@@ -83,9 +75,22 @@ const announcementSchema = new mongoose.Schema(
       default: true,
     },
 
+     // Soft Delete
     isDeleted: {
       type: Boolean,
       default: false,
+      index: true,
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
     },
 
     createdBy: {

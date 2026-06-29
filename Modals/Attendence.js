@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 
 const attendanceRecordSchema = new mongoose.Schema(
   {
+    academyId: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Academy",
+  required: true,
+},
     student: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -45,6 +50,23 @@ const attendanceSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+    },
+      // Soft Delete
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
     },
   },
   {

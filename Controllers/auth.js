@@ -6,12 +6,14 @@ const sendEmail = require("../Utils/sendEmail");
 const generateVerificationToken = require("../Utils/generateVerificationToken");
 const jwt = require("jsonwebtoken");
 const Session = require("../Modals/Sessions");
+const Academy = require("../Modals/Academy");
 const UAParser = require("ua-parser-js");
 const hashToken = require("../Utils/hashToken");
 const {
   generateAccessToken,
   generateRefreshToken,
 } = require("../Utils/generateTokens");
+const generateUniqueAcademySlug = require("../Utils/generateAcadmeySlug");
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCK_TIME = 15 * 60 * 1000; // 15 minutes
 const createUser = asyncHandler(async (req, res) => {
@@ -19,7 +21,7 @@ const createUser = asyncHandler(async (req, res) => {
     fullName,
     email,
     password,
-    role,
+    academyName,
     verificationToken,
   } = req.body;
 
@@ -53,6 +55,7 @@ const createUser = asyncHandler(async (req, res) => {
   // Check existing user
   const existingUser = await User.findOne({
     $or: [{ email }],
+
   });
 
   if (existingUser) {
@@ -64,16 +67,25 @@ const createUser = asyncHandler(async (req, res) => {
 
   // Hash Password
   const hashedPassword = await bcrypt.hash(password, 10);
-
+const slug= await generateUniqueAcademySlug(academyName)
+  const academy = await Academy.create({
+  name: academyName,
+  email,
+  slug,
+});
   // Create User
   const user = await User.create({
     fullName,
     email,
     password: hashedPassword,
-    role: role || "student",
+    role:"admin",
     emailVerified: true,
-    approvalStatus: "pending",
+    approvalStatus: "approved",
+    academyId:academy._id
   });
+
+academy.owner = user._id;
+await academy.save();
 
   return res.status(201).json({
     success: true,
@@ -347,11 +359,17 @@ if (!isMatch) {
       message: "Your account has been blocked.",
     });
   }
+  
+  
+
 user.loginAttempts = 0;
 user.lockUntil = null;
 user.lastLogin = new Date();
 await user.save();
 
+
+//find acadmey 
+const academy = await Academy.findById(user.academyId);
 // device infomation
 const parser = new UAParser(req.headers["user-agent"]);
 
@@ -375,7 +393,6 @@ const refreshTokenHash = hashToken(refreshToken);
 //create session
 await Session.create({
   user: user._id,
-
   refreshTokenHash,
 
   browser,
@@ -385,7 +402,7 @@ await Session.create({
   device,
 
   ip,
-
+ academyId:academy._id,
   userAgent: req.headers["user-agent"],
 
   expiresAt: new Date(
@@ -405,20 +422,20 @@ res.cookie("refreshToken", refreshToken, {
   sameSite: "strict",
   maxAge: 7 * 24 * 60 * 60 * 1000,
 });
- return res.status(200).json({
+return res.status(200).json({
   success: true,
-  message: "Login successful.",
-
   accessToken,
-
   user: {
     id: user._id,
     fullName: user.fullName,
     email: user.email,
-    phone:user.phone,
-    profileImage:user.profileImage,
     role: user.role,
   },
+  academy: {
+    id: academy._id,
+    name: academy.name,
+    slug: academy.slug
+  }
 });
 });
 const refreshAccessToken = asyncHandler(async (req, res) => {
@@ -449,6 +466,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 
   const session = await Session.findOne({
     refreshTokenHash,
+    academyId:decoded.academyId
   });
 
   if (!session) {
@@ -458,7 +476,10 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     });
   }
 
-  const user = await User.findById(decoded.id);
+  const user = await User.findOne({
+    _id:decoded.id,
+    academyId:decoded.academyId
+  });
 
   if (!user) {
     return res.status(401).json({
@@ -507,6 +528,7 @@ const logout = asyncHandler(async (req, res) => {
 
     await Session.deleteOne({
       refreshTokenHash,
+      academyId:req.academy._id
     });
   }
 
@@ -524,6 +546,7 @@ const logout = asyncHandler(async (req, res) => {
 const logoutAll = asyncHandler(async (req, res) => {
   await Session.deleteMany({
     user: req.user._id,
+    academyId:req.academy._id
   });
 
   res.clearCookie("refreshToken", {
@@ -557,8 +580,10 @@ const updatePassword = asyncHandler(
       });
     }
 
-    const user = await User.findById(
-      req.user._id
+    const user = await User.findOne({
+    _id:  req.user._id,
+    academyId:req.academy._id
+    }
     ).select("+password");
 
     if (!user) {

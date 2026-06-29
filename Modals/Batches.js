@@ -7,6 +7,11 @@ const batchSchema = new mongoose.Schema(
       ref: "Course",
       required: true,
     },
+    academyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Academy",
+      required: true,
+    },
 
     name: {
       type: String,
@@ -62,10 +67,23 @@ createdBy: {
   ref: "User",
   required: true,
 },
-isDeleted: {
-  type: Boolean,
-  default: false,
-},
+  // Soft Delete
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
 
     students: [
       {

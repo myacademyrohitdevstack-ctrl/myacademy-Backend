@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const User = require("../Modals/User");
+const Academy = require("../Modals/Academy");
 const asyncHandler = require("../Utils/asyncHandler");
 
 const protect = asyncHandler(async (req, res, next) => {
@@ -68,7 +69,28 @@ const protect = asyncHandler(async (req, res, next) => {
     });
   }
 
-  req.user = user;
+ // 3. Get academy
+    const academy = await Academy.findById(user.academyId);
+
+    if (!academy) {
+      return res.status(401).json({
+        success: false,
+        message: "Academy not found",
+      });
+    }
+
+    // 4. Check academy status
+    if (academy.status === "suspended") {
+      return res.status(401).json({
+        success: false,
+        message: "Academy suspended",
+      });
+    }
+
+    // 5. Attach to request (IMPORTANT)
+    req.user = user;
+    req.academy = academy;
+
 
   next();
 });

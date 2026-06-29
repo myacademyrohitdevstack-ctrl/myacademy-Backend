@@ -2,14 +2,16 @@ const Announcement = require("../Modals/Announcement");
 const asyncHandler = require("../Utils/asyncHandler");
 const Course = require("../Modals/Courses");
 const Batch = require("../Modals/Batches");
+const User = require("../Modals/User");
 
 const createAnnouncement = asyncHandler(
   async (req, res) => {
-    const announcement =
-      await Announcement.create({
-        ...req.body,
-        createdBy: req.user._id,
-      });
+  
+    const announcement = await Announcement.create({
+  ...req.body,
+  academyId: req.academy._id,
+  createdBy: req.user._id,
+});
 
     res.status(201).json({
       success: true,
@@ -31,9 +33,10 @@ const getAnnouncements = asyncHandler(
       search,
     } = req.query;
 
-    const query = {
-      isDeleted: false,
-    };
+   const query = {
+  isDeleted: false,
+  academyId: req.academy._id,
+};
 
     if (targetType) {
       query.targetType = targetType;
@@ -77,10 +80,11 @@ const getAnnouncements = asyncHandler(
  */
 const getAnnouncementById =
   asyncHandler(async (req, res) => {
-    const announcement =
-      await Announcement.findById(
-        req.params.id
-      )
+   const announcement = await Announcement.findOne({
+  _id: req.params.id,
+  academyId: req.academy._id,
+    isDeleted:false
+})
         .populate(
           "createdBy",
           "fullName"
@@ -108,10 +112,11 @@ const getAnnouncementById =
  */
 const updateAnnouncement =
   asyncHandler(async (req, res) => {
-    const announcement =
-      await Announcement.findById(
-        req.params.id
-      );
+  const announcement = await Announcement.findOne({
+  _id: req.params.id,
+  academyId: req.academy._id,
+    isDeleted:false
+});
 
     if (!announcement) {
       return res.status(404).json({
@@ -121,15 +126,18 @@ const updateAnnouncement =
       });
     }
 
-    const updatedAnnouncement =
-      await Announcement.findByIdAndUpdate(
-        req.params.id,
-        req.body,
-        {
-          new: true,
-          runValidators: true,
-        }
-      );
+const updatedAnnouncement = await Announcement.findOneAndUpdate(
+  {
+    _id: req.params.id,
+    academyId: req.academy._id,
+      isDeleted:false
+  },
+  req.body,
+  {
+    new: true,
+    runValidators: true,
+  }
+);
 
     res.status(200).json({
       success: true,
@@ -144,22 +152,28 @@ const updateAnnouncement =
  */
 const deleteAnnouncement =
   asyncHandler(async (req, res) => {
-    const announcement =
-      await Announcement.findById(
-        req.params.id
-      );
+  const announcement = await Announcement.findOneAndUpdate(
+  {
+    _id: req.params.id,
+    academyId: req.academy._id,
+    isDeleted: false,
+  },
+  {
+    isDeleted: true,
+    deletedAt: new Date(),
+    deletedBy: req.user._id,
+  },
+  {
+    new: true,
+  }
+);
 
-    if (!announcement) {
-      return res.status(404).json({
-        success: false,
-        message:
-          "Announcement not found",
-      });
-    }
-
-    announcement.isDeleted = true;
-
-    await announcement.save();
+if (!announcement) {
+  return res.status(404).json({
+    success: false,
+    message: "Announcement not found",
+  });
+}
 
     res.status(200).json({
       success: true,
@@ -174,27 +188,34 @@ const deleteAnnouncement =
  */
 const getBatchAnnouncements =
   asyncHandler(async (req, res) => {
-   const batch = await Batch.findById(
-  req.params.batchId
-).select("course");
-
-const announcements =
-  await Announcement.find({
-    isDeleted: false,
-    $or: [
-      {
-        targetType: "batch",
-        batch: req.params.batchId,
-      },
-      {
-        targetType: "course",
-        course: batch.course,
-      },
-      {
-        targetType: "system",
-      },
-    ],
-  })
+  const batch = await Batch.findOne({
+  _id: req.params.batchId,
+  academyId: req.academy._id,
+    isDeleted:false
+}).select("course");
+if (!batch) {
+  return res.status(404).json({
+    success: false,
+    message: "Batch not found",
+  });
+}
+const announcements = await Announcement.find({
+  academyId: req.academy._id,
+  isDeleted: false,
+  $or: [
+    {
+      targetType: "batch",
+      batch: req.params.batchId,
+    },
+    {
+      targetType: "course",
+      course: batch.course,
+    },
+    {
+      targetType: "system",
+    },
+  ],
+})
     .populate("createdBy", "fullName")
     .sort({
       pinned: -1,
@@ -214,11 +235,23 @@ const announcements =
  */
 const getCourseAnnouncements =
   asyncHandler(async (req, res) => {
+      const course = await Course.findOne({
+  _id: req.params.courseId,
+  academyId: req.academy._id,
+    isDeleted:false
+})
+if (!course) {
+  return res.status(404).json({
+    success: false,
+    message: "Course not found",
+  });
+}
     const announcements =
       await Announcement.find({
-        course: req.params.courseId,
-        isDeleted: false,
-      })
+  academyId: req.academy._id,
+  course: req.params.courseId,
+  isDeleted: false,
+})
         .populate(
           "createdBy",
           "fullName"
@@ -243,9 +276,10 @@ const getSystemAnnouncements =
   asyncHandler(async (req, res) => {
     const announcements =
       await Announcement.find({
-        targetType: "system",
-        isDeleted: false,
-      })
+  academyId: req.academy._id,
+  targetType: "system",
+  isDeleted: false,
+})
         .populate(
           "createdBy",
           "fullName"

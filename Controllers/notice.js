@@ -2,9 +2,11 @@ const Notice = require("../Modals/Notice");
 const Batch = require("../Modals/Batches");
 
 const createNotice = asyncHandler(async (req, res) => {
-  const batch = await Batch.findById(
-    req.params.batchId
-  );
+  const batch = await Batch.findOne({
+    _id:req.params.batchId,
+    academy:req.academy._id,
+      isDeleted:false
+});
 
   if (!batch) {
     return res.status(404).json({
@@ -18,6 +20,7 @@ const createNotice = asyncHandler(async (req, res) => {
     content: req.body.content,
     batch: batch._id,
     createdBy: req.user._id,
+    academyId:req.academy._id
   });
 
   res.status(201).json({
@@ -27,8 +30,22 @@ const createNotice = asyncHandler(async (req, res) => {
   });
 });
 const getNotices = asyncHandler(async (req, res) => {
+  const batch = await Batch.findOne({
+    _id: req.params.batchId,
+    academy: req.academy._id,
+      isDeleted:false
+});
+
+if (!batch) {
+    return res.status(404).json({
+        success:false,
+        message:"Batch not found."
+    });
+}
   const notices = await Notice.find({
     batch: req.params.batchId,
+    academyId:req.academy._id,
+      isDeleted:false
   })
     .populate("createdBy", "fullName")
     .sort("-createdAt");
@@ -41,9 +58,11 @@ const getNotices = asyncHandler(async (req, res) => {
 });
 const getNoticeById = asyncHandler(
   async (req, res) => {
-    const notice = await Notice.findById(
-      req.params.noticeId
-    ).populate(
+    const notice = await Notice.findOne({
+      _id:req.params.noticeId,
+      academyId:req.academy._id,
+        isDeleted:false
+  }).populate(
       "createdBy",
       "fullName email"
     );
@@ -63,17 +82,23 @@ const getNoticeById = asyncHandler(
 );
 const updateNotice = asyncHandler(
   async (req, res) => {
-    const notice =
-      await Notice.findByIdAndUpdate(
-        req.params.noticeId,
-        {
-          $set: req.body,
-        },
-        {
-          new: true,
-          runValidators: true,
-        }
-      );
+  const { title, content } = req.body;
+
+const notice = await Notice.findOneAndUpdate(
+  {
+    _id: req.params.noticeId,
+    academyId: req.academy._id,
+      isDeleted:false
+  },
+  {
+    title,
+    content,
+  },
+  {
+    new: true,
+    runValidators: true,
+  }
+);
 
     if (!notice) {
       return res.status(404).json({
@@ -92,10 +117,21 @@ const updateNotice = asyncHandler(
 );
 const deleteNotice = asyncHandler(
   async (req, res) => {
-    const notice =
-      await Notice.findByIdAndDelete(
-        req.params.noticeId
-      );
+  const notice = await Notice.findOneAndUpdate(
+  {
+    _id: req.params.noticeId,
+    academyId: req.academy._id,
+    isDeleted: false,
+  },
+  {
+    isDeleted: true,
+    deletedAt: new Date(),
+    deletedBy: req.user._id,
+  },
+  {
+    new: true,
+  }
+);
 
     if (!notice) {
       return res.status(404).json({

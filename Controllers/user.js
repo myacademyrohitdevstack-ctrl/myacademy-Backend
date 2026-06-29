@@ -1,4 +1,3 @@
-
 const uploadToCloudinary = require("../Utils/Cloudinary");
 const cloudinary = require("../Config/cloudinary");
 const User = require("../Modals/User");
@@ -12,8 +11,11 @@ const updateProfileImage = asyncHandler(async (req, res) => {
     });
   }
 
-  // Get current user
-  const user = await User.findById(req.user._id);
+  const user = await User.findOne({
+    _id: req.user._id,
+    academyId: req.academy._id,
+      isDeleted:false
+  });
 
   if (!user) {
     return res.status(404).json({
@@ -24,40 +26,61 @@ const updateProfileImage = asyncHandler(async (req, res) => {
 
   const oldPublicId = user.profileImage?.publicId;
 
-  // Upload new image first
-  const result = await uploadToCloudinary(
-    req.file.buffer,
-    "students/profile"
-  );
+  let uploadedImage;
 
-  // Update database
-  user.profileImage = {
-    url: result.secure_url,
-    publicId: result.public_id,
-  };
+  try {
+    // Upload new image
+    uploadedImage = await uploadToCloudinary(
+      req.file.buffer,
+      `academies/${req.academy._id}/users/profile`
+    );
 
-  await user.save();
+    // Update database
+    user.profileImage = {
+      url: uploadedImage.secure_url,
+      publicId: uploadedImage.public_id,
+    };
 
-  // Delete old image after successful upload & DB update
-  if (oldPublicId) {
-    try {
-      await cloudinary.uploader.destroy(oldPublicId);
-    } catch (err) {
-      console.error("Failed to delete old image:", err.message);
+    await user.save();
+
+    // Delete old image only after successful DB update
+    if (oldPublicId) {
+      try {
+        await cloudinary.uploader.destroy(oldPublicId);
+      } catch (err) {
+        console.error(
+          "Failed to delete old profile image:",
+          err.message
+        );
+      }
     }
-  }
 
-  return res.status(200).json({
-    success: true,
-    message: "Profile image updated successfully.",
-    user: {
-      fullName: user.fullName,
-      email: user.email,
-      phone: user.phone,
-      profileImage: user.profileImage,
-      role:user.role
-    },
-  });
+    return res.status(200).json({
+      success: true,
+      message: "Profile image updated successfully.",
+      user: {
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        profileImage: user.profileImage,
+      },
+    });
+  } catch (err) {
+    // Rollback uploaded image if DB update failed
+    if (uploadedImage?.public_id) {
+      try {
+        await cloudinary.uploader.destroy(uploadedImage.public_id);
+      } catch (rollbackError) {
+        console.error(
+          "Failed to rollback uploaded image:",
+          rollbackError.message
+        );
+      }
+    }
+
+    throw err;
+  }
 });
 
 module.exports = {

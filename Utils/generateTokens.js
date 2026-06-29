@@ -17,6 +17,7 @@ const generateRefreshToken = (user) => {
   return jwt.sign(
     {
       id: user._id,
+      academyId:user.academyId
     },
     process.env.REFRESH_SECRET,
     {

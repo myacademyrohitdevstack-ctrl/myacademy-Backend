@@ -8,6 +8,11 @@ const sessionSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    academyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Academy",
+      required: true,
+    },
 
    refreshTokenHash: {
   type: String,

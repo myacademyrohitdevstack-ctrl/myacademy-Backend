@@ -1,6 +1,7 @@
 const asyncHandler = require("../Utils/asyncHandler");
 const Attendance = require("../Modals/Attendence");
-
+const Batch = require("../Modals/Batches");
+const User = require("../Modals/User");
 /**
  * @desc    Mark attendance
  * @route   POST /api/attendance
@@ -9,12 +10,25 @@ const Attendance = require("../Modals/Attendence");
 const markAttendance = asyncHandler(async (req, res) => {
   const { batch,  date, records } = req.body;
 
+  const batchDoc=await Batch.findOne({
+    _id:batch,
+    academyId:req.academy._id,
+      isDeleted:false
+  })
+  if (!batchDoc) {
+    return res.status(400).json({
+      success: false,
+      message: "Batch Not found",
+    });
+  }
   const attendanceDate = new Date(date);
   attendanceDate.setHours(0, 0, 0, 0);
 
   const alreadyExists = await Attendance.findOne({
     batch,
     date: attendanceDate,
+    academyId:req.academy._id,
+      isDeleted:false
   });
 
   if (alreadyExists) {
@@ -23,12 +37,32 @@ const markAttendance = asyncHandler(async (req, res) => {
       message: "Attendance has already been marked for this batch on this date.",
     });
   }
+  const studentIds = records.map(r => r.student);
 
+const validStudents = await User.find({
+  _id: { $in: studentIds },
+  academyId: req.academy._id,
+    isDeleted:false
+});
+const validStudentIds = validStudents.map(s => s._id.toString());
+
+const invalidStudents = studentIds.filter(
+  id => !validStudentIds.includes(id.toString())
+);
+
+if (invalidStudents.length > 0) {
+  return res.status(400).json({
+    success: false,
+    message: "Some students do not belong to this academy",
+  });
+}
+  
   const attendance = await Attendance.create({
     batch,
     date: attendanceDate,
     records,
     markedBy: req.user._id,
+       academyId:req.academy._id
   });
 
   return res.status(201).json({
@@ -38,11 +72,7 @@ const markAttendance = asyncHandler(async (req, res) => {
   });
 });
 
-/**
- * @desc    Update attendance
- * @route   PUT /api/attendance/:attendanceId
- * @access  Teacher/Admin
- */
+
 const updateAttendance = asyncHandler(async (req, res) => {
   const { attendanceId } = req.params;
   const { records } = req.body;
@@ -54,7 +84,11 @@ const updateAttendance = asyncHandler(async (req, res) => {
     });
   }
 
-  const attendance = await Attendance.findById(attendanceId);
+  const attendance = await Attendance.findOne({
+    _id:attendanceId,
+       academyId:req.academy._id,
+         isDeleted:false
+  });
 
   if (!attendance) {
     return res.status(404).json({
@@ -89,6 +123,17 @@ const getAttendance = asyncHandler(async (req, res) => {
       message: "Batch and date are required.",
     });
   }
+   const batchDoc=await Batch.findOne({
+    _id:batch,
+    academyId:req.academy._id,
+      isDeleted:false
+  })
+  if (!batchDoc) {
+    return res.status(400).json({
+      success: false,
+      message: "Batch Not found",
+    });
+  }
 
   const attendanceDate = new Date(date);
   attendanceDate.setHours(0, 0, 0, 0);
@@ -96,6 +141,8 @@ const getAttendance = asyncHandler(async (req, res) => {
   const attendance = await Attendance.findOne({
     batch,
     date: attendanceDate,
+       academyId:req.academy._id,
+         isDeleted:false
   })
     .populate("batch", "batchName")
     .populate("records.student", "fullName email profileImage")
@@ -121,9 +168,21 @@ const getAttendance = asyncHandler(async (req, res) => {
  */
 const getBatchAttendanceHistory = asyncHandler(async (req, res) => {
   const { batchId } = req.params;
-
+ const batchDoc=await Batch.findOne({
+    _id:batchId,
+    academyId:req.academy._id,
+      isDeleted:false
+  })
+  if (!batchDoc) {
+    return res.status(400).json({
+      success: false,
+      message: "Batch Not found",
+    });
+  }
   const attendance = await Attendance.find({
+       academyId:req.academy._id,
     batch: batchId,
+      isDeleted:false
   })
     .populate("markedBy", "fullName")
     .sort({ date: -1 });
@@ -142,9 +201,22 @@ const getBatchAttendanceHistory = asyncHandler(async (req, res) => {
  */
 const getStudentAttendance = asyncHandler(async (req, res) => {
   const { studentId } = req.params;
+const studentExists = await User.findOne({
+  _id: studentId,
+  academyId: req.academy._id,
+    isDeleted:false
+});
 
+  if (!studentExists) {
+    return res.status(400).json({
+      success: false,
+      message: "Student  Not found",
+    });
+  }
   const attendance = await Attendance.find({
     "records.student": studentId,
+       academyId:req.academy._id,
+         isDeleted:false
   })
     .populate("batch", "batchName")
     .sort({ date: -1 });
@@ -193,7 +265,22 @@ const getStudentAttendance = asyncHandler(async (req, res) => {
 const deleteAttendance = asyncHandler(async (req, res) => {
   const { attendanceId } = req.params;
 
-  const attendance = await Attendance.findById(attendanceId);
+  const attendance = await Attendance.findOneAndUpdate(
+    {
+      _id: attendanceId,
+      academyId: req.academy._id,
+      isDeleted: false,
+    },
+    {
+      isDeleted: true,
+      deletedAt: new Date(),
+      deletedBy: req.user._id,
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
 
   if (!attendance) {
     return res.status(404).json({
@@ -201,8 +288,6 @@ const deleteAttendance = asyncHandler(async (req, res) => {
       message: "Attendance not found.",
     });
   }
-
-  await attendance.deleteOne();
 
   return res.status(200).json({
     success: true,
@@ -212,9 +297,21 @@ const deleteAttendance = asyncHandler(async (req, res) => {
 
 const getAttendanceDashboard = asyncHandler(async (req, res) => {
   const { batchId } = req.params;
-
+ const batchDoc=await Batch.findOne({
+    _id:batchId,
+    academyId:req.academy._id,
+      isDeleted:false
+  })
+  if (!batchDoc) {
+    return res.status(400).json({
+      success: false,
+      message: "Batch Not found",
+    });
+  }
   const attendance = await Attendance.find({
+       academyId:req.academy._id,
     batch: batchId,
+      isDeleted:false
   })
     .populate("markedBy", "fullName")
     .sort({ date: -1 });

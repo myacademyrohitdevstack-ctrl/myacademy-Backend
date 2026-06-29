@@ -1,6 +1,6 @@
 const Course = require("../Modals/Courses");
 const asyncHandler = require("../Utils/asyncHandler");
-const slugify = require("slugify");
+
 const generateUniqueSlug = require("../Utils/generateUniqueSlug");
 const uploadToCloudinary = require("../Utils/Cloudinary");
 const createCourse = asyncHandler(
@@ -39,7 +39,7 @@ const createCourse = asyncHandler(
         req.body.durationInMonths,
       level: req.body.level,
       status: req.body.status,
-
+     academyId:req.academy._id,
       thumbnail,
 
       createdBy: req.user._id,
@@ -58,6 +58,8 @@ const createCourse = asyncHandler(
 const getCourses = asyncHandler(async (req, res) => {
  const courses = await Course.find({
   isDeleted: false,
+  academyId:req.academy._id,
+  isDeleted:false
 }).populate("createdBy", "fullName email")
     .sort({ createdAt: -1 });
 
@@ -68,7 +70,11 @@ const getCourses = asyncHandler(async (req, res) => {
   });
 });
 const getCourseById = asyncHandler(async (req, res) => {
-  const course = await Course.findById(req.params.courseId)
+  const course = await Course.findOne({
+    _id:req.params.courseId,
+    academyId:req.academy._id,
+      isDeleted:false
+  })
     .populate("createdBy", "fullName email")
     .populate("batches");
 
@@ -95,9 +101,11 @@ if (req.body.title) {
           req.params.courseId
         );}
 
-const course = await Course.findByIdAndUpdate(
-  req.params.courseId,
-  {
+const course = await Course.findOneAndUpdate({
+  _id:req.params.courseId,
+  academyId:req.academy._id,
+    isDeleted:false
+},{
     $set: updateData,
   },
   {
@@ -121,9 +129,18 @@ const course = await Course.findByIdAndUpdate(
   });
 });
 const deleteCourse = asyncHandler(async (req, res) => {
-  const course = await Course.findByIdAndDelete(
-    req.params.courseId
-  );
+ const course=await Course.findOneAndUpdate(
+  {
+    _id: req.params.courseId,
+    academyId: req.academy._id,
+    isDeleted:false
+  },
+  {
+    isDeleted: true,
+    deletedAt: new Date(),
+    deletedBy:req.user._id
+  }
+);
 
   if (!course) {
     return res.status(404).json({
@@ -138,9 +155,11 @@ const deleteCourse = asyncHandler(async (req, res) => {
   });
 });
 const publishCourse = asyncHandler(async (req, res) => {
-  const course = await Course.findByIdAndUpdate(
-    req.params.courseId,
-    {
+  const course = await Course.findOneAndUpdate({
+    _id:req.params.courseId,
+    academyId:req.academy._id,
+      isDeleted:false
+   }, {
       status: "published",
     },
     {
@@ -162,9 +181,11 @@ const publishCourse = asyncHandler(async (req, res) => {
   });
 });
 const archiveCourse = asyncHandler(async (req, res) => {
-  const course = await Course.findByIdAndUpdate(
-    req.params.courseId,
-    {
+  const course = await Course.findOneAndUpdate({
+   _id: req.params.courseId,
+   academyId:req.academy._id,
+     isDeleted:false
+  },{
       status: "archived",
     },
     {

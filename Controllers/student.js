@@ -19,6 +19,8 @@ const USER_FIELDS = [
  const getMyProfile = asyncHandler(async (req, res) => {
   const student = await Student.findOne({
     user: req.user._id,
+    academyId:req.academy._id,
+      isDeleted:false
   }).populate(
     "user",
     "fullName email profileImage role approvalStatus"
@@ -57,9 +59,11 @@ const updateProfile = asyncHandler(async (req, res) => {
     }
   
     if (Object.keys(userUpdates).length) {
-      await User.findByIdAndUpdate(
-        userId,
-        { $set: userUpdates },
+      await User.findOneAndUpdate({
+       _id: userId,
+         isDeleted:false,
+       academyId:req.academy._id
+      },{ $set: userUpdates },
         {
           session,
           runValidators: true,
@@ -69,7 +73,10 @@ const updateProfile = asyncHandler(async (req, res) => {
 
     if (Object.keys(studentUpdates).length) {
       await Student.findOneAndUpdate(
-        { user: userId },
+        { user: userId,
+          academyId:req.academy._id,
+            isDeleted:false
+         },
         {
           $set: flatten(studentUpdates),
         },
@@ -83,10 +90,18 @@ const updateProfile = asyncHandler(async (req, res) => {
     await session.commitTransaction();
 
     const [updatedUser, updatedStudent] = await Promise.all([
-      User.findById(userId).select(
+      User.findOne({
+        _id:userId,
+        academyId:req.academy._id,
+          isDeleted:false
+      }).select(
         "fullName email phone profileImage role"
       ),
-      Student.findOne({ user: userId }).select(
+      Student.findOne({
+         user: userId, 
+        academyId:req.academy._id,
+          isDeleted:false
+        }).select(
         "dateOfBirth gender languageLevel address guardian emergencyContact"
       ),
     ]);
@@ -107,7 +122,11 @@ const updateProfile = asyncHandler(async (req, res) => {
   }
 });
  const getStudentById = asyncHandler(async (req, res) => {
-  const student = await Student.findById(req.params.id)
+  const student = await Student.findOne({
+    _id:req.params.id,
+     academyId:req.academy._id,
+       isDeleted:false
+  })
     .populate("user");
 
   if (!student) {
@@ -126,6 +145,8 @@ const getStudentBatches = asyncHandler(
   async (req, res) => {
     const batches = await Batches.find({
       students: req.params.studentId,
+      academyId:req.academy._id,
+        isDeleted:false
     })
       .populate("course")
       .populate("trainers")
@@ -144,6 +165,8 @@ const getStudentNotes = asyncHandler(async (req, res) => {
   const batch = await Batches.findOne({
     _id: batchId,
     students: req.user._id,
+    academyId:req.academy._id,
+      isDeleted:false
   });
 
   if (!batch) {
@@ -155,6 +178,8 @@ const getStudentNotes = asyncHandler(async (req, res) => {
 
   const notes = await Note.find({
     batch: batchId,
+    academyId:req.academy._id,
+      isDeleted:false
   })
     .populate("createdBy", "fullName")
     .sort("-createdAt");
@@ -172,6 +197,8 @@ const getStudentClassLinks = asyncHandler(async (req, res) => {
   const batch = await Batches.findOne({
     _id: batchId,
     students: req.user._id,
+    academyId:req.academy._id,
+      isDeleted:false
   });
 
   if (!batch) {
@@ -183,6 +210,8 @@ const getStudentClassLinks = asyncHandler(async (req, res) => {
 
   const classLinks = await ClassLink.find({
     batch: batchId,
+    academyId:req.academy._id,
+      isDeleted:false
   })
     .populate("createdBy", "fullName")
     .sort({ meetingDate: 1 });
@@ -198,7 +227,9 @@ const getStudentBatchById = asyncHandler(async (req, res) => {
 
   const batch = await Batches.findOne({
     _id: batchId,
+    academyId:req.academy._id,
     students: req.user._id,
+      isDeleted:false
   }).populate("course","title")
   .populate("trainers","fullName")
 
@@ -220,6 +251,7 @@ const getStudentAnnouncements =
   asyncHandler(async (req, res) => {
    const announcements = await Announcement.find({
   isDeleted: false,
+  academyId:req.academy._id,
   isPublished:true,
   $or: [
     {
@@ -250,8 +282,10 @@ const getLoggedStudentAllAnnouncements =
   asyncHandler(async (req, res) => {
     const batches = await Batches.find({
   students: req.user._id,
+  academyId:req.academy._id,
+    isDeleted:false
 }).select("_id course");
-console.log(batches)
+
 const batchIds = batches.map((b) => b._id);
 
 const courseIds = [
@@ -262,6 +296,7 @@ const courseIds = [
 
    const announcements = await Announcement.find({
   isDeleted: false,
+  academyId:req.academy._id,
   isPublished:true,
   $or: [
     {
@@ -292,6 +327,8 @@ const getLoggedStudentAllClasses =
   asyncHandler(async (req, res) => {
     const batches = await Batches.find({
   students: req.user._id,
+  academyId:req.academy._id,
+    isDeleted:false
 });
 
 const batchIds = batches.map((b) => b._id);
@@ -299,6 +336,7 @@ const batchIds = batches.map((b) => b._id);
    const classes = await ClassLink.find({
   isDeleted: false,
   batch:{$in:batchIds},
+  academyId:req.academy._id,
  meetingDate: { $gte: new Date() },
 })
 .sort({
@@ -312,17 +350,7 @@ meetingDate:-1
     });
   });
 
-// export const getAllStudents = asyncHandler(async (req, res) => {
-//   const students = await Student.find()
-//     .populate("user", "fullName email profileImage")
-//     .sort("-createdAt");
 
-//   res.json({
-//     success: true,
-//     count: students.length,
-//     students,
-//   });
-// });
 
 
 const getLoggedStudentStatics =
@@ -332,6 +360,8 @@ const getLoggedStudentStatics =
 
     const batchList = await Batches.find({
       students: studentId,
+      academyId:req.academy._id,
+        isDeleted:false
     }).select("_id course");
 
     const batchIds = batchList.map((b) => b._id);
@@ -351,15 +381,21 @@ const getLoggedStudentStatics =
     ] = await Promise.all([
       ClassLink.countDocuments({
         batch: { $in: batchIds },
+          isDeleted:false,
+        academyId:req.academy._id,
       }),
 
       Note.countDocuments({
         batch: { $in: batchIds },
+          isDeleted:false,
+        academyId:req.academy._id
       }),
 
       Note.countDocuments({
         batch: { $in: batchIds },
+          isDeleted:false,
         fileType: "pdf",
+        academyId:req.academy._id
       }),
     ]);
 
@@ -381,6 +417,8 @@ const getStudentAttendanceDashboard = asyncHandler(async (req, res) => {
 
   const attendance = await Attendance.find({
     "records.student": studentId,
+    academyId:req.academy._id,
+      isDeleted:false
   })
     .select("date records")
     .sort({ date: -1 });
