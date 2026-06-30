@@ -23,7 +23,7 @@ const createNote = asyncHandler(async (req, res) => {
 }
   const result = await uploadToCloudinary(
     req.file.buffer,
-    "notes",
+   `academies/${req.academy._id}/notes`,
     "raw"
   );
 const lastNote = await Note.findOne({

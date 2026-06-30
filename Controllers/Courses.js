@@ -14,7 +14,7 @@ const createCourse = asyncHandler(
       const result =
         await uploadToCloudinary(
            req.file.buffer,
-          "courses"
+          `academies/${req.academy._id}/courses`
         );
 
       thumbnail = {

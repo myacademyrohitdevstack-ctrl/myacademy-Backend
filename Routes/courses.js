@@ -13,15 +13,15 @@ router.post("/createCourse",protect,authorize("admin"),upload.single('image'),cr
 
 router.get("/", protect,authorize("admin"), getCourses);
 
-router.get("/:courseId", getCourseById);
+router.get("/:courseId",protect, getCourseById);
 
-router.patch("/:courseId", updateCourse);
+router.patch("/:courseId",protect, updateCourse);
 
-router.delete("/:courseId", deleteCourse);
+router.delete("/:courseId",protect, deleteCourse);
 
-router.patch("/:courseId/publish", publishCourse);
+router.patch("/:courseId/publish",protect, publishCourse);
 
-router.patch("/:courseId/archive", archiveCourse);
+router.patch("/:courseId/archive",protect, archiveCourse);
 module.exports = router;
 
 // import { Router } from "express";

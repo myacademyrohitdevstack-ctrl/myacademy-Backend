@@ -10,6 +10,7 @@ const {
   getStudentAttendance,
   deleteAttendance,
   getAttendanceDashboard,
+  getAttendanceById,
 } = require("../Controllers/attendence");
 const protect = require("../Middleware/protect");
 
@@ -28,6 +29,11 @@ router.get(
   "/",
   protect,
   getAttendance
+);
+router.get(
+  "/:attendanceId/ById",
+  protect,
+  getAttendanceById
 );
 router.get(
   "/:batchId/dashboard",

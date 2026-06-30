@@ -9,7 +9,7 @@ const User = require("../Modals/User");
  */
 const markAttendance = asyncHandler(async (req, res) => {
   const { batch,  date, records } = req.body;
-
+console.log(req.academy._id)
   const batchDoc=await Batch.findOne({
     _id:batch,
     academyId:req.academy._id,
@@ -56,7 +56,13 @@ if (invalidStudents.length > 0) {
     message: "Some students do not belong to this academy",
   });
 }
-  
+  console.log({
+  batch,
+  date: attendanceDate,
+  records,
+  markedBy: req.user._id,
+  academyId: req.academy._id,
+});
   const attendance = await Attendance.create({
     batch,
     date: attendanceDate,
@@ -426,10 +432,66 @@ const getAttendanceDashboard = asyncHandler(async (req, res) => {
   });
 });
 
+const getAttendanceById = asyncHandler(async (req, res) => {
+  const { attendanceId } = req.params;
 
+  const attendance = await Attendance.findOne({
+    _id: attendanceId,
+    academyId: req.academy._id,
+    isDeleted: false,
+  })
+    .populate("batch", "name")
+    .populate(
+      "records.student",
+      "fullName email phone profileImage"
+    )
+    .populate("markedBy", "fullName email");
+
+  if (!attendance) {
+    return res.status(404).json({
+      success: false,
+      message: "Attendance not found.",
+    });
+  }
+
+  const totalStudents = attendance.records.length;
+
+  const present = attendance.records.filter(
+    (record) => record.status === "present"
+  ).length;
+
+  const absent = attendance.records.filter(
+    (record) => record.status === "absent"
+  ).length;
+
+  const percentage =
+    totalStudents === 0
+      ? 0
+      : Number(((present / totalStudents) * 100).toFixed(2));
+
+  return res.status(200).json({
+    success: true,
+    attendance: {
+      _id: attendance._id,
+      batch: attendance.batch,
+      date: attendance.date,
+      markedBy: attendance.markedBy,
+      createdAt: attendance.createdAt,
+      updatedAt: attendance.updatedAt,
+      stats: {
+        totalStudents,
+        present,
+        absent,
+        percentage,
+      },
+      records: attendance.records,
+    },
+  });
+});
 
 module.exports = {
   getAttendanceDashboard,
+  getAttendanceById,
   markAttendance,
   updateAttendance,
   getAttendance,

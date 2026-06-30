@@ -4,6 +4,8 @@ const sendEmail = require("../Utils/sendEmail");
 const asyncHandler = require("../Utils/asyncHandler");
 const User = require("../Modals/User");
 const ClassLink = require("../Modals/ClassLink");
+const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
 
 const Announcement = require("../Modals/Announcement");
 
@@ -686,7 +688,259 @@ const announcements = await Announcement.find({
 });
 
 
+const createStudent = asyncHandler(async (req, res) => {
+  const { fullName, email, phone, courseId, batchId, password } = req.body;
 
+  const session = await mongoose.startSession();
+
+  let createdUser;
+
+  try {
+    session.startTransaction();
+
+    // Check existing user
+    const existingUser = await User.findOne({
+      email,
+      academyId: req.academy._id,
+      isDeleted: false,
+    }).session(session);
+
+    if (existingUser) {
+      await session.abortTransaction();
+
+      return res.status(400).json({
+        success: false,
+        message: "Student already exists.",
+      });
+    }
+
+    // Validate Course
+    const course = await Course.findOne({
+      _id: courseId,
+      academyId: req.academy._id,
+      isDeleted: false,
+    }).session(session);
+
+    if (!course) {
+      await session.abortTransaction();
+
+      return res.status(404).json({
+        success: false,
+        message: "Course not found.",
+      });
+    }
+
+    // Validate Batch
+    const batch = await Batch.findOne({
+      _id: batchId,
+      academyId: req.academy._id,
+      course: courseId,
+      isDeleted: false,
+    }).session(session);
+
+    if (!batch) {
+      await session.abortTransaction();
+
+      return res.status(404).json({
+        success: false,
+        message: "Batch not found.",
+      });
+    }
+
+    // Hash Password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create User
+    const users = await User.create(
+      [
+        {
+          fullName,
+          email,
+          phone,
+          password: hashedPassword,
+          role: "student",
+          academyId: req.academy._id,
+          approvalStatus: "approved",
+          status: "active",
+        },
+      ],
+      { session }
+    );
+
+    createdUser = users[0];
+
+    // Create Student Profile
+    await Student.create(
+      [
+        {
+          user: createdUser._id,
+          academyId: req.academy._id,
+        },
+      ],
+      { session }
+    );
+
+    // Add student to batch
+    batch.students.push(createdUser._id);
+    await batch.save({ session });
+
+    // Commit Transaction
+    await session.commitTransaction();
+  } catch (err) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+
+    throw err;
+  } finally {
+    session.endSession();
+  }
+
+  // Send Email AFTER successful commit
+  try {
+    await sendEmail({
+      to: createdUser.email,
+      subject: "🎉 Welcome to My Academy",
+      html: `
+        <h2>Welcome ${createdUser.fullName},</h2>
+
+        <p>Your student account has been created successfully.</p>
+
+        <p><strong>Login Details</strong></p>
+
+        <ul>
+          <li><strong>Email:</strong> ${createdUser.email}</li>
+          <li><strong>Password:</strong> ${password}</li>
+        </ul>
+
+        <p>Please keep these credentials safe. You can change your password after logging in.</p>
+
+        <br/>
+
+        <p>Regards,</p>
+        <p><strong>My Academy</strong></p>
+      `,
+    });
+  } catch (err) {
+    console.error("Student welcome email failed:", err.message);
+  }
+
+  return res.status(201).json({
+    success: true,
+    message: "Student created successfully.",
+  });
+});
+const deleteUserByAdmin = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const session = await mongoose.startSession();
+
+  try {
+    session.startTransaction();
+
+    const user = await User.findOne({
+      _id: id,
+      academyId: req.academy._id,
+      isDeleted: false,
+    }).session(session);
+
+    if (!user) {
+      await session.abortTransaction();
+
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    // Prevent deleting yourself
+    if (user._id.toString() === req.user._id.toString()) {
+      await session.abortTransaction();
+
+      return res.status(400).json({
+        success: false,
+        message: "You cannot delete your own account.",
+      });
+    }
+
+    // Soft delete user
+    user.isDeleted = true;
+    await user.save({ session });
+
+    if (user.role === "student") {
+      await Student.findOneAndUpdate(
+        {
+          user: user._id,
+          academyId: req.academy._id,
+          isDeleted: false,
+        },
+        {
+          $set: {
+            isDeleted: true,
+          },
+        },
+        { session }
+      );
+
+      await Batch.updateMany(
+        {
+          academyId: req.academy._id,
+          students: user._id,
+          isDeleted: false,
+        },
+        {
+          $pull: {
+            students: user._id,
+          },
+        },
+        { session }
+      );
+    }
+
+    if (user.role === "teacher") {
+      await Teacher.findOneAndUpdate(
+        {
+          user: user._id,
+          academyId: req.academy._id,
+          isDeleted: false,
+        },
+        {
+          $set: {
+            isDeleted: true,
+          },
+        },
+        { session }
+      );
+
+      await Batch.updateMany(
+        {
+          academyId: req.academy._id,
+          trainers: user._id,
+          isDeleted: false,
+        },
+        {
+          $pull: {
+            trainers: user._id,
+          },
+        },
+        { session }
+      );
+    }
+
+    await session.commitTransaction();
+
+    return res.status(200).json({
+      success: true,
+      message: "User deleted successfully.",
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
+});
 module.exports = {
-  getUsers,approveUser,getallClasses,getallAnnouncement ,getRecentEnrollments,rejectUser,blockUser,unblockUser,getUserById,updateUserByAdmin,getDashboardStats
+  getUsers,approveUser,getallClasses,getallAnnouncement,createStudent ,getRecentEnrollments,rejectUser,blockUser,unblockUser,getUserById,updateUserByAdmin,getDashboardStats,
+  deleteUserByAdmin
 };

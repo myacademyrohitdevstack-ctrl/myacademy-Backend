@@ -12,21 +12,25 @@ router.post(
 
 router.get(
   "/:batchId/class-links",
+  protect,
   getClassLinks
 );
 
 router.get(
   "/batches/:batchId/class-links/:classLinkId",
+  protect,
   getClassLinkById
 );
 
 router.patch(
   "/batches/:batchId/class-links/:classLinkId",
+  protect,
   updateClassLink
 );
 
 router.delete(
   "/:classLinkId/delete",
+  protect,
   deleteClassLink
 );
 module.exports=router

@@ -2,11 +2,7 @@ const mongoose = require("mongoose");
 
 const attendanceRecordSchema = new mongoose.Schema(
   {
-    academyId: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "Academy",
-  required: true,
-},
+ 
     student: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -35,6 +31,11 @@ const attendanceSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+       academyId: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Academy",
+  required: true,
+},
 
     date: {
       type: Date,

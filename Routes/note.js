@@ -19,21 +19,25 @@ router.post(
 
 router.get(
   "/:batchId/notes",
+  protect,
   getNotes
 );
 
 router.get(
   "/batches/:batchId/notes/:noteId",
+  protect,
   getNoteById
 );
 
 router.patch(
   "/batches/:batchId/notes/:noteId",
+  protect,
   updateNote
 );
 
 router.delete(
   "/:noteId/delete",
+  protect,
   deleteNote
 );
 module.exports=router

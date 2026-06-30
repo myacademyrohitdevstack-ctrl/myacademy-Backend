@@ -9,26 +9,31 @@ const { createNotice, getNotices, getNoticeById, updateNotice, deleteNotice } = 
 const router = express.Router();
 router.post(
   "/batches/:batchId/notices",
+  protect,
   createNotice
 );
 
 router.get(
   "/batches/:batchId/notices",
+  protect,
   getNotices
 );
 
 router.get(
   "/batches/:batchId/notices/:noticeId",
+  protect,
   getNoticeById
 );
 
 router.patch(
   "/batches/:batchId/notices/:noticeId",
+  protect,
   updateNotice
 );
 
 router.delete(
   "/batches/:batchId/notices/:noticeId",
+  protect,
   deleteNotice
 );
 module.exports=router
