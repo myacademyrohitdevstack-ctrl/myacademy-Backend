@@ -12,7 +12,7 @@ const router = express.Router();
 router.post(
   "/:batchId/add",
   protect,
-  authorize("admin"),
+  authorize("admin","teacher"),
   upload.single("file"),
   createNote
 );

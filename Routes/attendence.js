@@ -1,7 +1,5 @@
 const express = require("express");
-
 const router = express.Router();
-
 const {
   markAttendance,
   updateAttendance,
@@ -13,15 +11,14 @@ const {
   getAttendanceById,
 } = require("../Controllers/attendence");
 const protect = require("../Middleware/protect");
-
-
+const authorize = require("../Middleware/authorize");
 // Mark attendance
 router.post(
   "/mark",
   protect,
+  authorize("admin","teacher"),
   markAttendance
 );
-
 // Get attendance by batch & date
 // Example:
 // GET /api/attendance?batch=123&date=2026-06-26
@@ -65,6 +62,7 @@ router.put(
 // Delete attendance
 router.delete(
   "/:attendanceId",
+  authorize("admin"),
   protect,
   deleteAttendance
 );

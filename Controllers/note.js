@@ -15,6 +15,18 @@ const createNote = asyncHandler(async (req, res) => {
       message: "Batch not found.",
     });
   }
+
+if (
+  req.user.role === "teacher" &&
+  !batch.trainers.some(
+    trainer => trainer.toString() === req.user._id.toString()
+  )
+) {
+  return res.status(403).json({
+    success: false,
+    message: "You are not authorized to create class links for this batch.",
+  });
+}
   if (!req.file) {
   return res.status(400).json({
     success: false,
@@ -131,28 +143,35 @@ const updateNote = asyncHandler(async (req, res) => {
   });
 });
 const deleteNote = asyncHandler(async (req, res) => {
-const note = await Note.findOneAndUpdate(
-  {
+  const note = await Note.findOne({
     _id: req.params.noteId,
     academyId: req.academy._id,
     isDeleted: false,
-  },
-  {
-    isDeleted: true,
-    deletedAt:new Date(),
-    deletedBy:req.user._id
-  },
-  {
-    new: true,
-  }
-);
-
-if (!note) {
-  return res.status(404).json({
-    success: false,
-    message: "Note not found.",
   });
-}
+
+  if (!note) {
+    return res.status(404).json({
+      success: false,
+      message: "Note not found.",
+    });
+  }
+
+  // Teachers can delete only their own notes
+  if (
+    req.user.role === "teacher" &&
+    note.createdBy.toString() !== req.user._id.toString()
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: "You are not authorized to delete this note.",
+    });
+  }
+
+  note.isDeleted = true;
+  note.deletedAt = new Date();
+  note.deletedBy = req.user._id;
+
+  await note.save();
 
   res.status(200).json({
     success: true,

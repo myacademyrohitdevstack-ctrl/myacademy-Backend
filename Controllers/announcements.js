@@ -4,22 +4,46 @@ const Course = require("../Modals/Courses");
 const Batch = require("../Modals/Batches");
 const User = require("../Modals/User");
 
-const createAnnouncement = asyncHandler(
-  async (req, res) => {
-  
-    const announcement = await Announcement.create({
-  ...req.body,
-  academyId: req.academy._id,
-  createdBy: req.user._id,
-});
+const createAnnouncement = asyncHandler(async (req, res) => {
+  const data = {
+    ...req.body,
+    academyId: req.academy._id,
+    createdBy: req.user._id,
+  };
 
-    res.status(201).json({
-      success: true,
-      message:"Annoucement Sent Successfully",
-      announcement,
+  const batch = await Batch.findOne({
+    _id: req.body.batch,
+    academyId: req.academy._id,
+    isDeleted: false,
+  });
+
+  if (!batch) {
+    return res.status(404).json({
+      success: false,
+      message: "Batch not found.",
     });
   }
-);
+
+  if (
+    req.user.role === "teacher" &&
+    !batch.trainers.some(
+      trainer => trainer.toString() === req.user._id.toString()
+    )
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: "You are not authorized to create announcements for this batch.",
+    });
+  }
+
+  const announcement = await Announcement.create(data);
+
+  res.status(201).json({
+    success: true,
+    message: "Announcement sent successfully.",
+    announcement,
+  });
+});
 
 /**
  * @desc Get All Announcements
@@ -150,37 +174,42 @@ const updatedAnnouncement = await Announcement.findOneAndUpdate(
  * @desc Delete Announcement
  * @route DELETE /api/announcements/:id
  */
-const deleteAnnouncement =
-  asyncHandler(async (req, res) => {
-  const announcement = await Announcement.findOneAndUpdate(
-  {
+const deleteAnnouncement = asyncHandler(async (req, res) => {
+  const announcement = await Announcement.findOne({
     _id: req.params.id,
     academyId: req.academy._id,
     isDeleted: false,
-  },
-  {
-    isDeleted: true,
-    deletedAt: new Date(),
-    deletedBy: req.user._id,
-  },
-  {
-    new: true,
-  }
-);
-
-if (!announcement) {
-  return res.status(404).json({
-    success: false,
-    message: "Announcement not found",
   });
-}
 
-    res.status(200).json({
-      success: true,
-      message:
-        "Announcement deleted successfully",
+  if (!announcement) {
+    return res.status(404).json({
+      success: false,
+      message: "Announcement not found.",
     });
+  }
+
+  // Teachers can delete only their own announcements
+  if (
+    req.user.role === "teacher" &&
+    announcement.createdBy.toString() !== req.user._id.toString()
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: "You are not authorized to delete this announcement.",
+    });
+  }
+
+  announcement.isDeleted = true;
+  announcement.deletedAt = new Date();
+  announcement.deletedBy = req.user._id;
+
+  await announcement.save();
+
+  res.status(200).json({
+    success: true,
+    message: "Announcement deleted successfully.",
   });
+});
 
 /**
  * @desc Get Batch Announcements

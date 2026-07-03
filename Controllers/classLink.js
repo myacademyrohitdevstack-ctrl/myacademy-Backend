@@ -16,6 +16,18 @@ const createClassLink = asyncHandler(async (req, res) => {
       message: "Batch not found.",
     });
   }
+  
+if (
+  req.user.role === "teacher" &&
+  !batch.trainers.some(
+    trainer => trainer.toString() === req.user._id.toString()
+  )
+) {
+  return res.status(403).json({
+    success: false,
+    message: "You are not authorized to create class links for this batch.",
+  });
+}
   const existingClassLinks=await ClassLink.countDocuments({
     batch: batch._id,
     academyId:req.academy._id,
@@ -121,22 +133,11 @@ const updateClassLink = asyncHandler(
   }
 );
 const deleteClassLink = asyncHandler(async (req, res) => {
-  const classLink = await ClassLink.findOneAndUpdate(
-    {
-      _id: req.params.classLinkId,
-      academyId: req.academy._id,
-      isDeleted: false,
-    },
-    {
-      isDeleted: true,
-      deletedAt: new Date(),
-      deletedBy: req.user._id,
-    },
-    {
-      new: true,
-      runValidators: true,
-    }
-  );
+  const classLink = await ClassLink.findOne({
+    _id: req.params.classLinkId,
+    academyId: req.academy._id,
+    isDeleted: false,
+  });
 
   if (!classLink) {
     return res.status(404).json({
@@ -144,6 +145,23 @@ const deleteClassLink = asyncHandler(async (req, res) => {
       message: "Class link not found.",
     });
   }
+
+  // Teachers can delete only their own class links
+  if (
+    req.user.role === "teacher" &&
+    classLink.createdBy.toString() !== req.user._id.toString()
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: "You are not authorized to delete this class link.",
+    });
+  }
+
+  classLink.isDeleted = true;
+  classLink.deletedAt = new Date();
+  classLink.deletedBy = req.user._id;
+
+  await classLink.save();
 
   return res.status(200).json({
     success: true,

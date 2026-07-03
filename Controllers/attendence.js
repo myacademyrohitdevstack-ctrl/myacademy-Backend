@@ -9,7 +9,7 @@ const User = require("../Modals/User");
  */
 const markAttendance = asyncHandler(async (req, res) => {
   const { batch,  date, records } = req.body;
-console.log(req.academy._id)
+
   const batchDoc=await Batch.findOne({
     _id:batch,
     academyId:req.academy._id,
@@ -21,6 +21,17 @@ console.log(req.academy._id)
       message: "Batch Not found",
     });
   }
+  if (
+  req.user.role === "teacher" &&
+  !batchDoc.trainers.some(
+    trainer => trainer.toString() === req.user._id.toString()
+  )
+) {
+  return res.status(403).json({
+    success: false,
+    message: "You are not authorized to mark attendance for this batch.",
+  });
+}
   const attendanceDate = new Date(date);
   attendanceDate.setHours(0, 0, 0, 0);
 
@@ -56,13 +67,7 @@ if (invalidStudents.length > 0) {
     message: "Some students do not belong to this academy",
   });
 }
-  console.log({
-  batch,
-  date: attendanceDate,
-  records,
-  markedBy: req.user._id,
-  academyId: req.academy._id,
-});
+ 
   const attendance = await Attendance.create({
     batch,
     date: attendanceDate,
