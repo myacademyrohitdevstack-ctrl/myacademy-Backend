@@ -830,6 +830,109 @@ const createStudent = asyncHandler(async (req, res) => {
     message: "Student created successfully.",
   });
 });
+const createTeacher = asyncHandler(async (req, res) => {
+  const { fullName, email, phone, password } = req.body;
+
+  const session = await mongoose.startSession();
+
+  let createdUser;
+
+  try {
+    session.startTransaction();
+
+    // Check existing user
+    const existingUser = await User.findOne({
+      email,
+      academyId: req.academy._id,
+      isDeleted: false,
+    }).session(session);
+
+    if (existingUser) {
+      await session.abortTransaction();
+
+      return res.status(400).json({
+        success: false,
+        message: "Teacher already exists.",
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create user
+    const users = await User.create(
+      [
+        {
+          fullName,
+          email,
+          phone,
+          password: hashedPassword,
+          role: "teacher",
+          academyId: req.academy._id,
+          approvalStatus: "approved",
+          status: "active",
+        },
+      ],
+      { session }
+    );
+
+    createdUser = users[0];
+ // Create Student Profile
+    await Teacher.create(
+      [
+        {
+          user: createdUser._id,
+          academyId: req.academy._id,
+        },
+      ],
+      { session }
+    );
+    // Commit transaction
+    await session.commitTransaction();
+  } catch (err) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+
+    throw err;
+  } finally {
+    session.endSession();
+  }
+
+  // Send email after successful commit
+  try {
+    await sendEmail({
+      to: createdUser.email,
+      subject: "🎉 Welcome to My Academy",
+      html: `
+        <h2>Welcome ${createdUser.fullName},</h2>
+
+        <p>Your teacher account has been created successfully.</p>
+
+        <p><strong>Login Details</strong></p>
+
+        <ul>
+          <li><strong>Email:</strong> ${createdUser.email}</li>
+          <li><strong>Password:</strong> ${password}</li>
+        </ul>
+
+        <p>Please keep these credentials safe. You can change your password after logging in.</p>
+
+        <br/>
+
+        <p>Regards,</p>
+        <p><strong>My Academy</strong></p>
+      `,
+    });
+  } catch (err) {
+    console.error("Teacher welcome email failed:", err.message);
+  }
+
+  return res.status(201).json({
+    success: true,
+    message: "Teacher created successfully.",
+  });
+});
 const deleteUserByAdmin = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -942,5 +1045,5 @@ const deleteUserByAdmin = asyncHandler(async (req, res) => {
 });
 module.exports = {
   getUsers,approveUser,getallClasses,getallAnnouncement,createStudent ,getRecentEnrollments,rejectUser,blockUser,unblockUser,getUserById,updateUserByAdmin,getDashboardStats,
-  deleteUserByAdmin
+  deleteUserByAdmin,createTeacher
 };
