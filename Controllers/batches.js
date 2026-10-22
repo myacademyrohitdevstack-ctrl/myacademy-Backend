@@ -280,4 +280,44 @@ batch.students.pull(student._id);
     });
   });
 
-module.exports={createBatch,updateBatch,deleteBatch,getBatchById,getBatches,addStudentToBatch,removeStudentFromBatch,getBatchStudents}
+
+const getAllAcademyBatches = asyncHandler(async (req, res) => {
+  const query = {
+    academyId: req.academy._id,
+    isDeleted: false,
+  };
+
+  if (req.user.role === "teacher") {
+    const teacherBatches = await Batch.find({
+      academyId: req.academy._id,
+      trainers: req.user._id,
+      isDeleted: false,
+    });
+    if (teacherBatches && teacherBatches.length > 0) {
+      query.trainers = req.user._id;
+    }
+  }
+
+  const batches = await Batch.find(query)
+    .populate("course", "title slug")
+    .populate("trainers", "fullName email")
+    .populate("students", "fullName email avatar")
+    .sort({ createdAt: -1 });
+
+  res.status(200).json({
+    success: true,
+    batches,
+  });
+});
+
+module.exports = {
+  createBatch,
+  updateBatch,
+  deleteBatch,
+  getBatchById,
+  getBatches,
+  addStudentToBatch,
+  removeStudentFromBatch,
+  getBatchStudents,
+  getAllAcademyBatches
+};

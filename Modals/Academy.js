@@ -40,11 +40,7 @@ const academySchema = new mongoose.Schema(
       default: "free",
     },
 
-    status: {
-      type: String,
-      enum: ["active", "inactive"],
-      default: "active",
-    },
+   status: { type: String, enum: ['active', 'inactive', 'suspended'], default: 'active' },
       // Soft Delete
     isDeleted: {
       type: Boolean,

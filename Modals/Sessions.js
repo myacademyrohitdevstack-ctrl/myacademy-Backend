@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 
 const sessionSchema = new mongoose.Schema(
@@ -8,18 +9,22 @@ const sessionSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+
+    // Optional for platform-level Super Admin sessions.
+    // Regular academy users must have an academyId,
+    // validated in the authentication flow.
     academyId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Academy",
-      required: true,
+      default: undefined,
     },
 
-   refreshTokenHash: {
-  type: String,
-  required: true,
-  select: false,
-  unique:true
-},
+    refreshTokenHash: {
+      type: String,
+      required: true,
+      select: false,
+      unique: true,
+    },
 
     device: {
       type: String,
@@ -62,7 +67,7 @@ const sessionSchema = new mongoose.Schema(
   }
 );
 
-// Automatically delete expired sessions
+// Automatically delete expired sessions.
 sessionSchema.index(
   { expiresAt: 1 },
   {

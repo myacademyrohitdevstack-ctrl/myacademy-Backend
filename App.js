@@ -40,6 +40,13 @@ app.use("/api/notes", require("./Routes/note"));
 app.use("/api/announcements", require("./Routes/announcement"));
 app.use("/api/attendence", require("./Routes/attendence"));
 app.use("/api/fees", require("./Routes/fees"));
+app.use("/api/parent", require("./Routes/parent"));
+app.use("/api/admin/parent-links", require("./Routes/parentManagement"));
+app.use("/api/super-admin", require("./Routes/superAdmin"));
+app.use("/api/exams", require("./Routes/exam"));
+app.use("/api/homework", require("./Routes/homework"));
+app.use("/api/whatsapp-reminders", require("./Routes/whatsappReminders"));
+app.use("/api/webhooks", require("./Routes/webhooks"));
 
 app.use((req, res) => {
   res.status(404).json({ message: "Route not found" });

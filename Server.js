@@ -2,6 +2,7 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 const mongooseConnectToDb = require("./Config/db");
 const app = require("./App");
+const { initReminderScheduler, stopReminderScheduler } = require("./Utils/reminderScheduler");
 
 const PORT = process.env.PORT || 5000;
 
@@ -15,6 +16,7 @@ const shutdown = async () => {
   console.log("🛑 Shutting down server...");
 
   try {
+    stopReminderScheduler();
     if (server) {
       server.close(() => {
         console.log("✅ HTTP server closed");
@@ -42,6 +44,7 @@ mongooseConnectToDb()
   .then(() => {
     server = app.listen(PORT, () => {
       console.log(`🚀 Server running on ${PORT}`);
+      initReminderScheduler();
     });
   })
   .catch((err) => {

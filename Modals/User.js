@@ -1,4 +1,5 @@
-const mongoose=require('mongoose')
+
+const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema(
   {
@@ -8,10 +9,15 @@ const userSchema = new mongoose.Schema(
       trim: true,
       maxlength: 100,
     },
+
+    // Academy membership is optional only for platform Super Admins.
     academyId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Academy",
-      required: true,
+      required: function () {
+        return this.platformRole !== "super_admin";
+      },
+      index: true,
     },
 
     email: {
@@ -36,13 +42,22 @@ const userSchema = new mongoose.Schema(
     },
 
     profileImage: {
-    url:String,
-    publicId:String
-},
+      url: String,
+      publicId: String,
+    },
 
+    // Platform-wide permissions.
+    platformRole: {
+      type: String,
+      enum: ["user", "super_admin"],
+      default: "user",
+      index: true,
+    },
+
+    // Role within an academy.
     role: {
       type: String,
-      enum: ["student", "teacher", "admin"],
+      enum: ["student", "teacher", "admin", "parent"],
       default: "student",
     },
 
@@ -51,23 +66,23 @@ const userSchema = new mongoose.Schema(
       enum: ["pending", "active", "blocked"],
       default: "active",
     },
-  
-blockedAt: {
-  type: Date,
-  default: null,
-},
 
-blockedBy: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "User",
-  default: null,
-},
+    blockedAt: {
+      type: Date,
+      default: null,
+    },
 
-blockReason: {
-  type: String,
-  default: null,
-  trim: true,
-},
+    blockedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    blockReason: {
+      type: String,
+      default: null,
+      trim: true,
+    },
 
     emailVerified: {
       type: Boolean,
@@ -98,8 +113,8 @@ blockReason: {
       enum: ["email", "google"],
       default: "email",
     },
-   
-     // Soft Delete
+
+    // Soft delete.
     isDeleted: {
       type: Boolean,
       default: false,
@@ -116,36 +131,39 @@ blockReason: {
       ref: "User",
       default: null,
     },
+
     approvalStatus: {
-  type: String,
-  enum: ["pending", "approved", "rejected"],
-  default: "pending",
-},
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
+    },
 
-approvedBy: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "User",
-  default: null,
-},
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
 
-approvedAt: {
-  type: Date,
-  default: null,
-},
-loginAttempts: {
-  type: Number,
-  default: 0,
-},
+    approvedAt: {
+      type: Date,
+      default: null,
+    },
 
-lockUntil: {
-  type: Date,
-  default: null,
-},
+    loginAttempts: {
+      type: Number,
+      default: 0,
+    },
+
+    lockUntil: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
   }
 );
 
- User = mongoose.model("User", userSchema);
+const User = mongoose.model("User", userSchema);
+
 module.exports = User;

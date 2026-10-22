@@ -1,3 +1,4 @@
+
 const jwt = require("jsonwebtoken");
 const User = require("../Modals/User");
 const Academy = require("../Modals/Academy");
@@ -11,14 +12,13 @@ const protect = asyncHandler(async (req, res, next) => {
     req.headers.authorization &&
     req.headers.authorization.startsWith("Bearer ")
   ) {
-    
     token = req.headers.authorization.split(" ")[1];
   }
 
   if (!token) {
     return res.status(403).json({
       success: false,
-      code:"TOKEN-EXPIRE",
+      code: "TOKEN-EXPIRE",
       message: "Access token is required.",
     });
   }
@@ -30,24 +30,35 @@ const protect = asyncHandler(async (req, res, next) => {
   } catch (error) {
     return res.status(403).json({
       success: false,
-       code:"TOKEN-EXPIRE",
+      code: "TOKEN-EXPIRE",
       message: "Invalid or expired access token.",
     });
   }
 
-  const user = await User.findById(decoded.id).select(
-    "-password"
-  );
-
-  if (!user) {
+  if (!decoded.id) {
     return res.status(403).json({
       success: false,
-       code:"TOKEN-EXPIRE",
-      message: "User not found.",
+      code: "TOKEN-EXPIRE",
+      message: "Invalid access token.",
     });
   }
 
-  // Security checks
+  // Load the current user from the database.
+  // Never trust role claims from the JWT alone.
+  const user = await User.findOne({
+    _id: decoded.id,
+    isDeleted: { $ne: true },
+  });
+
+  if (!user) {
+    return res.status(401).json({
+      success: false,
+      code: "TOKEN-EXPIRE",
+      message: "User not found or account deleted.",
+    });
+  }
+
+  // Account security checks.
   if (user.status === "blocked") {
     return res.status(401).json({
       success: false,
@@ -69,28 +80,56 @@ const protect = asyncHandler(async (req, res, next) => {
     });
   }
 
- // 3. Get academy
-    const academy = await Academy.findById(user.academyId);
+  // Attach the current database user to the request.
+  req.user = user;
 
-    if (!academy) {
-      return res.status(401).json({
-        success: false,
-        message: "Academy not found",
-      });
-    }
+  // Super Admins operate at the platform level.
+  // They do not need an academyId.
+  if (user.platformRole === "super_admin") {
+    req.academy = null;
+    return next();
+  }
 
-    // 4. Check academy status
-    if (academy.status === "suspended") {
-      return res.status(401).json({
-        success: false,
-        message: "Academy suspended",
-      });
-    }
+  // All other users must belong to an academy.
+  if (!user.academyId) {
+    return res.status(403).json({
+      success: false,
+      message: "Your account is not associated with an academy.",
+    });
+  }
 
-    // 5. Attach to request (IMPORTANT)
-    req.user = user;
-    req.academy = academy;
+  // Load the current academy and verify its status.
+  const academy = await Academy.findOne({
+    _id: user.academyId,
+    isDeleted: { $ne: true },
+  });
 
+  if (!academy) {
+    return res.status(401).json({
+      success: false,
+      message: "Academy not found.",
+    });
+  }
+
+  if (academy.status !== "active") {
+    return res.status(403).json({
+      success: false,
+      message: "This academy is not active.",
+    });
+  }
+
+  // Ensure the access token's academy claim matches current membership.
+  if (
+    !decoded.academyId ||
+    String(decoded.academyId) !== String(user.academyId)
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: "Invalid academy access token.",
+    });
+  }
+
+  req.academy = academy;
 
   next();
 });
