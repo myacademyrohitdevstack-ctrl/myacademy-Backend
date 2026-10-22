@@ -327,51 +327,6 @@ const getLoggedStudentAllAnnouncements = asyncHandler(async (req, res) => {
     announcements,
   });
 });
-const getLoggedStudentAllAnnouncements =
-  asyncHandler(async (req, res) => {
-    const batches = await Batches.find({
-  students: req.user._id,
-  academyId:req.academy._id,
-    isDeleted:false
-}).select("_id course");
-
-const batchIds = batches.map((b) => b._id);
-
-const courseIds = [
-  ...new Set(
-    batches.map((b) => b.course?.toString())
-  ),
-];
-
-   const announcements = await Announcement.find({
-  isDeleted: false,
-  academyId:req.academy._id,
-  isPublished:true,
-  $or: [
-    {
-      targetType: "system",
-    },
-    {
-      targetType: "batch",
-      batch: { $in: batchIds },
-    },
-    {
-      targetType: "course",
-      course: { $in: courseIds },
-    },
-  ],
-})
-.sort({
-  pinned: -1,
-  createdAt: -1,
-});
-
-    res.status(200).json({
-      success: true,
-      count: announcements.length,
-      announcements,
-    });
-  });
 const getLoggedStudentAllClasses =
   asyncHandler(async (req, res) => {
     const batches = await Batches.find({
