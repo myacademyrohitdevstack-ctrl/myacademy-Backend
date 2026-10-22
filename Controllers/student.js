@@ -247,37 +247,86 @@ const getStudentBatchById = asyncHandler(async (req, res) => {
   });
 });
 
-const getStudentAnnouncements =
-  asyncHandler(async (req, res) => {
-   const announcements = await Announcement.find({
-  isDeleted: false,
-  academyId:req.academy._id,
-  isPublished:true,
-  $or: [
-    {
-      targetType: "system",
-    },
-    {
-      targetType: "batch",
-      batch: { $in: req.params.batchId },
-    },
-    {
-      targetType: "course",
-      course: { $in: req.params.courseId },
-    },
-  ],
-})
-.sort({
-  pinned: -1,
-  createdAt: -1,
+const getStudentAnnouncements = asyncHandler(async (req, res) => {
+  const announcements = await Announcement.find({
+    isDeleted: false,
+    academyId: req.academy._id,
+    isPublished: true,
+    $or: [
+      {
+        targetType: { $in: ["system", "academy"] },
+      },
+      {
+        targetType: "batch",
+        batch: req.params.batchId,
+      },
+      {
+        targetType: "course",
+        course: req.params.courseId,
+      },
+    ],
+  })
+    .populate("createdBy", "fullName role")
+    .populate("batch", "name")
+    .populate("course", "title")
+    .sort({
+      isPinned: -1,
+      publishAt: -1,
+      createdAt: -1,
+    });
+
+  res.status(200).json({
+    success: true,
+    count: announcements.length,
+    announcements,
+  });
 });
 
-    res.status(200).json({
-      success: true,
-      count: announcements.length,
-      announcements,
+const getLoggedStudentAllAnnouncements = asyncHandler(async (req, res) => {
+  const batches = await Batches.find({
+    students: req.user._id,
+    academyId: req.academy._id,
+    isDeleted: false,
+  }).select("_id course");
+
+  const batchIds = batches.map((b) => b._id);
+  const courseIds = [
+    ...new Set(batches.map((b) => b.course?.toString()).filter(Boolean)),
+  ];
+
+  const announcements = await Announcement.find({
+    isDeleted: false,
+    academyId: req.academy._id,
+    isPublished: true,
+    $or: [
+      {
+        targetType: { $in: ["system", "academy"] },
+      },
+      {
+        targetType: "batch",
+        batch: { $in: batchIds },
+      },
+      {
+        targetType: "course",
+        course: { $in: courseIds },
+      },
+    ],
+  })
+    .populate("createdBy", "fullName role")
+    .populate("batch", "name")
+    .populate("course", "title")
+    .sort({
+      isPinned: -1,
+      publishAt: -1,
+      createdAt: -1,
     });
+
+  res.status(200).json({
+    success: true,
+    count: announcements.length,
+    announcements,
   });
+});
 const getLoggedStudentAllAnnouncements =
   asyncHandler(async (req, res) => {
     const batches = await Batches.find({

@@ -17,9 +17,9 @@ const getMyNotifications = asyncHandler(async (req, res) => {
     return res.status(200).json({ success: true, unreadCount: 0, notifications: [] });
   }
 
+  const now = new Date();
   let filter = {
     isDeleted: false,
-    isPublished: true,
   };
 
   if (academyId) {
@@ -27,9 +27,24 @@ const getMyNotifications = asyncHandler(async (req, res) => {
   }
 
   if (role === "admin") {
+    // Admin sees all announcements for their academy (published or created by admin)
+    // Non-admin roles see only published announcements whose publish time has arrived
+  } else {
+    filter.isPublished = true;
+    filter.$and = [
+      {
+        $or: [
+          { publishAt: null },
+          { publishAt: { $lte: now } },
+        ],
+      },
+    ];
+  }
+
+  if (role === "admin") {
     // Admin sees all announcements for their academy
   } else if (role === "teacher") {
-    // Teacher sees system announcements + batches they train
+    // Teacher sees academy-wide announcements + batches they train
     const batches = await Batch.find({
       academyId,
       trainers: req.user._id,
@@ -40,12 +55,12 @@ const getMyNotifications = asyncHandler(async (req, res) => {
     const courseIds = batches.map((b) => b.course).filter(Boolean);
 
     filter.$or = [
-      { targetType: "system" },
+      { targetType: { $in: ["system", "academy"] } },
       { targetType: "batch", batch: { $in: batchIds } },
       { targetType: "course", course: { $in: courseIds } },
     ];
   } else if (role === "student") {
-    // Student sees system announcements + batches they are enrolled in
+    // Student sees academy-wide announcements + batches they are enrolled in
     const batches = await Batch.find({
       academyId,
       students: req.user._id,
@@ -56,12 +71,12 @@ const getMyNotifications = asyncHandler(async (req, res) => {
     const courseIds = batches.map((b) => b.course).filter(Boolean);
 
     filter.$or = [
-      { targetType: "system" },
+      { targetType: { $in: ["system", "academy"] } },
       { targetType: "batch", batch: { $in: batchIds } },
       { targetType: "course", course: { $in: courseIds } },
     ];
   } else if (role === "parent") {
-    // Parent sees system announcements + batches of all their linked children
+    // Parent sees academy-wide announcements + batches of all their linked children
     const links = await ParentStudent.find({
       academyId,
       parentId: req.user._id,
@@ -80,7 +95,7 @@ const getMyNotifications = asyncHandler(async (req, res) => {
     const courseIds = batches.map((b) => b.course).filter(Boolean);
 
     filter.$or = [
-      { targetType: "system" },
+      { targetType: { $in: ["system", "academy"] } },
       { targetType: "batch", batch: { $in: batchIds } },
       { targetType: "course", course: { $in: courseIds } },
     ];
@@ -105,7 +120,7 @@ const getMyNotifications = asyncHandler(async (req, res) => {
     // Build smart deep link based on role
     let link = "/";
     const batchId = ann.batch?._id || ann.batch;
-    const courseSlug = ann.course?.slug || "all";
+    const courseSlug = ann.course?.slug || ann.course?._id || "all";
 
     if (role === "admin") {
       link = batchId
@@ -128,12 +143,14 @@ const getMyNotifications = asyncHandler(async (req, res) => {
       title: ann.title,
       message: ann.message,
       priority: ann.priority || "normal",
-      targetType: ann.targetType,
+      targetType: ann.targetType === "system" ? "academy" : ann.targetType,
       isPinned: ann.isPinned,
+      isPublished: ann.isPublished,
       batch: ann.batch ? { _id: ann.batch._id, name: ann.batch.name } : null,
       course: ann.course ? { _id: ann.course._id, title: ann.course.title } : null,
       createdBy: ann.createdBy ? { fullName: ann.createdBy.fullName, role: ann.createdBy.role } : null,
       createdAt: ann.createdAt,
+      publishAt: ann.publishAt,
       isRead,
       link,
     };

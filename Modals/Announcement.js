@@ -22,7 +22,8 @@ const announcementSchema = new mongoose.Schema(
     targetType: {
       type: String,
       enum: [
-        "system", // everyone
+        "system", // legacy academy-wide
+        "academy", // entire academy
         "course", // specific course
         "batch", // specific batch
       ],
@@ -52,8 +53,6 @@ const announcementSchema = new mongoose.Schema(
       ],
       default: "normal",
     },
-
-   
 
     publishAt: {
       type: Date,
@@ -103,6 +102,12 @@ const announcementSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+announcementSchema.index({
+  academyId: 1,
+  isDeleted: 1,
+  isPublished: 1,
+});
 
 announcementSchema.index({
   targetType: 1,
