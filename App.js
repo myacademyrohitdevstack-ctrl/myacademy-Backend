@@ -47,6 +47,7 @@ app.use("/api/exams", require("./Routes/exam"));
 app.use("/api/homework", require("./Routes/homework"));
 app.use("/api/whatsapp-reminders", require("./Routes/whatsappReminders"));
 app.use("/api/webhooks", require("./Routes/webhooks"));
+app.use("/api/notifications", require("./Routes/notification"));
 
 app.use((req, res) => {
   res.status(404).json({ message: "Route not found" });

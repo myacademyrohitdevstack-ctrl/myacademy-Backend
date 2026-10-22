@@ -170,6 +170,18 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    readAnnouncements: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Announcement",
+      },
+    ],
+
+    lastNotificationReadAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
