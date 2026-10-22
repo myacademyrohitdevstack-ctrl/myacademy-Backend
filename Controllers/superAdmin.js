@@ -12,18 +12,39 @@ const audit = (req, action, targetType, targetId, academyId = null, reason = '',
 });
 
 const getDashboard = asyncHandler(async (req, res) => {
-  const [totalAcademies, activeAcademies, suspendedAcademies, totalUsers, activeSubscriptions, trials, plans] = await Promise.all([
+  const [totalAcademies, activeAcademies, suspendedAcademies, pendingAcademies, totalUsers, activeSubscriptions, trials, plans] = await Promise.all([
     Academy.countDocuments({ isDeleted: false }),
     Academy.countDocuments({ isDeleted: false, status: 'active' }),
     Academy.countDocuments({ isDeleted: false, status: 'suspended' }),
+    Academy.countDocuments({ isDeleted: false, status: 'pending' }),
     User.countDocuments({ isDeleted: false, platformRole: { $ne: 'super_admin' } }),
     AcademySubscription.countDocuments({ status: 'active' }),
     AcademySubscription.countDocuments({ status: 'trialing' }),
     PlatformPlan.countDocuments({ isActive: true }),
   ]);
-  const recentAcademies = await Academy.find({ isDeleted: false }).sort({ createdAt: -1 }).limit(8).select('name slug email phone owner plan status createdAt').populate('owner', 'fullName email');
+  const recentAcademies = await Academy.find({ isDeleted: false })
+    .sort({ createdAt: -1 })
+    .limit(8)
+    .select('name slug email phone owner plan status approvalStatus rejectionReason holdReason suspensionReason createdAt')
+    .populate('owner', 'fullName email phone approvalStatus status');
   const subscriptionsByStatus = await AcademySubscription.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]);
-  res.json({ success: true, data: { metrics: { totalAcademies, activeAcademies, suspendedAcademies, totalUsers, activeSubscriptions, trials, activePlans: plans }, subscriptionsByStatus, recentAcademies } });
+  res.json({
+    success: true,
+    data: {
+      metrics: {
+        totalAcademies,
+        activeAcademies,
+        suspendedAcademies,
+        pendingAcademies,
+        totalUsers,
+        activeSubscriptions,
+        trials,
+        activePlans: plans,
+      },
+      subscriptionsByStatus,
+      recentAcademies,
+    },
+  });
 });
 
 const listAcademies = asyncHandler(async (req, res) => {
@@ -36,21 +57,155 @@ const listAcademies = asyncHandler(async (req, res) => {
     filter.$or = [{ name: regex }, { email: regex }, { slug: regex }];
   }
   const [academies, total] = await Promise.all([
-    Academy.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).populate('owner', 'fullName email phone'),
+    Academy.find(filter)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .populate('owner', 'fullName email phone approvalStatus status'),
     Academy.countDocuments(filter),
   ]);
   res.json({ success: true, academies, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
 });
 
 const setAcademyStatus = asyncHandler(async (req, res) => {
-  const { status, reason = '' } = req.body;
-  if (!['active', 'inactive', 'suspended'].includes(status)) return res.status(400).json({ success: false, message: 'status must be active, inactive, or suspended.' });
-  if (status === 'suspended' && !String(reason).trim()) return res.status(400).json({ success: false, message: 'A reason is required when suspending an academy.' });
-  if (!mongoose.isValidObjectId(req.params.academyId)) return res.status(400).json({ success: false, message: 'Invalid academy ID.' });
-  const academy = await Academy.findOneAndUpdate({ _id: req.params.academyId, isDeleted: false }, { $set: { status } }, { new: true, runValidators: true });
-  if (!academy) return res.status(404).json({ success: false, message: 'Academy not found.' });
-  await audit(req, `academy.${status}`, 'Academy', academy._id, academy._id, reason);
-  res.json({ success: true, message: `Academy ${status}.`, academy });
+  const { status, action, reason = '' } = req.body;
+  const academyId = req.params.academyId;
+
+  // Support both status string or action shorthand
+  let targetStatus = status;
+  if (!targetStatus && action) {
+    const actionMap = {
+      approve: 'active',
+      reject: 'rejected',
+      hold: 'on_hold',
+      suspend: 'suspended',
+      activate: 'active',
+      inactivate: 'inactive',
+    };
+    targetStatus = actionMap[action];
+  }
+
+  const validStatuses = ['active', 'inactive', 'suspended', 'pending', 'rejected', 'on_hold'];
+  if (!validStatuses.includes(targetStatus)) {
+    return res.status(400).json({
+      success: false,
+      message: `status must be one of: ${validStatuses.join(', ')}.`,
+    });
+  }
+
+  const trimmedReason = String(reason || '').trim();
+  if (['suspended', 'rejected', 'on_hold'].includes(targetStatus) && !trimmedReason) {
+    return res.status(400).json({
+      success: false,
+      message: `A reason is mandatory when setting an academy to ${targetStatus}.`,
+    });
+  }
+
+  if (!mongoose.isValidObjectId(academyId)) {
+    return res.status(400).json({ success: false, message: 'Invalid academy ID.' });
+  }
+
+  const academy = await Academy.findOne({ _id: academyId, isDeleted: false });
+  if (!academy) {
+    return res.status(404).json({ success: false, message: 'Academy not found.' });
+  }
+
+  academy.status = targetStatus;
+
+  // Update approval status and audit reasons
+  if (targetStatus === 'active') {
+    academy.approvalStatus = 'approved';
+    academy.approvedAt = new Date();
+    academy.approvedBy = req.user._id;
+    academy.rejectionReason = null;
+    academy.holdReason = null;
+    academy.suspensionReason = null;
+  } else if (targetStatus === 'rejected') {
+    academy.approvalStatus = 'rejected';
+    academy.rejectionReason = trimmedReason;
+  } else if (targetStatus === 'on_hold') {
+    academy.approvalStatus = 'on_hold';
+    academy.holdReason = trimmedReason;
+  } else if (targetStatus === 'suspended') {
+    academy.suspensionReason = trimmedReason;
+  } else if (targetStatus === 'pending') {
+    academy.approvalStatus = 'pending';
+  }
+
+  await academy.save();
+
+  // Synchronize the owner User record
+  if (academy.owner) {
+    const ownerUpdate = {};
+    if (targetStatus === 'active') {
+      ownerUpdate.approvalStatus = 'approved';
+      ownerUpdate.status = 'active';
+      ownerUpdate.approvedAt = new Date();
+      ownerUpdate.approvedBy = req.user._id;
+      ownerUpdate.rejectionReason = null;
+      ownerUpdate.holdReason = null;
+    } else if (targetStatus === 'rejected') {
+      ownerUpdate.approvalStatus = 'rejected';
+      ownerUpdate.rejectionReason = trimmedReason;
+    } else if (targetStatus === 'on_hold') {
+      ownerUpdate.approvalStatus = 'on_hold';
+      ownerUpdate.holdReason = trimmedReason;
+    } else if (targetStatus === 'suspended') {
+      ownerUpdate.status = 'blocked';
+      ownerUpdate.blockReason = trimmedReason;
+      ownerUpdate.blockedAt = new Date();
+      ownerUpdate.blockedBy = req.user._id;
+    } else if (targetStatus === 'pending') {
+      ownerUpdate.approvalStatus = 'pending';
+      ownerUpdate.status = 'pending';
+    }
+
+    await User.findByIdAndUpdate(academy.owner, { $set: ownerUpdate });
+  }
+
+  await audit(req, `academy.${targetStatus}`, 'Academy', academy._id, academy._id, trimmedReason);
+
+  // Send email notification to owner if possible
+  if (academy.email) {
+    try {
+      const sendEmail = require('../Utils/sendEmail');
+      let subject = `Academy Status Update: ${academy.name}`;
+      let bodyText = `Your academy status has been updated to ${targetStatus}.`;
+
+      if (targetStatus === 'active') {
+        subject = `🎉 Academy Approved: Welcome to MyAcademy!`;
+        bodyText = `Congratulations! Your academy <strong>${academy.name}</strong> has been approved by the platform administrator. You can now log in and begin managing courses, batches, teachers, and students.`;
+      } else if (targetStatus === 'on_hold') {
+        subject = `Notice: Academy Registration On Hold`;
+        bodyText = `Your academy registration for <strong>${academy.name}</strong> has been placed on hold.<br/><br/><strong>Reason:</strong> ${trimmedReason}<br/><br/>Please reply to this email or contact support to resolve this hold.`;
+      } else if (targetStatus === 'rejected') {
+        subject = `Academy Registration Application Status`;
+        bodyText = `Your academy registration application for <strong>${academy.name}</strong> was not approved at this time.<br/><br/><strong>Reason:</strong> ${trimmedReason}`;
+      }
+
+      await sendEmail({
+        to: academy.email,
+        subject,
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; color: #1e293b;">
+            <h2>${subject}</h2>
+            <p>${bodyText}</p>
+            <p style="margin-top: 24px; font-size: 12px; color: #64748b;">Regards,<br/><strong>MyAcademy Platform Team</strong></p>
+          </div>
+        `,
+      });
+    } catch (e) {
+      // Email sending failure should not prevent status update
+    }
+  }
+
+  const populatedAcademy = await Academy.findById(academy._id).populate('owner', 'fullName email phone approvalStatus status');
+
+  res.json({
+    success: true,
+    message: `Academy status updated to ${targetStatus}.`,
+    academy: populatedAcademy,
+  });
 });
 
 const listPlans = asyncHandler(async (req, res) => {

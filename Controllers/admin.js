@@ -1043,7 +1043,348 @@ const deleteUserByAdmin = asyncHandler(async (req, res) => {
     session.endSession();
   }
 });
+
+const bulkCreateStudents = asyncHandler(async (req, res) => {
+  const { courseId, batchId, students } = req.body;
+
+  if (!courseId || !batchId) {
+    return res.status(400).json({
+      success: false,
+      message: "Both Course and Batch must be selected to enroll students.",
+    });
+  }
+
+  if (!Array.isArray(students) || students.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Please provide a valid list of students to import.",
+    });
+  }
+
+  const course = await Course.findOne({
+    _id: courseId,
+    academyId: req.academy._id,
+    isDeleted: false,
+  });
+
+  if (!course) {
+    return res.status(404).json({
+      success: false,
+      message: "Course not found.",
+    });
+  }
+
+  const batch = await Batch.findOne({
+    _id: batchId,
+    academyId: req.academy._id,
+    course: courseId,
+    isDeleted: false,
+  });
+
+  if (!batch) {
+    return res.status(404).json({
+      success: false,
+      message: "Selected batch not found for this course.",
+    });
+  }
+
+  const createdUsers = [];
+  const skipped = [];
+  const errors = [];
+  const newStudentIds = [];
+
+  for (let i = 0; i < students.length; i++) {
+    const s = students[i];
+    const rowNum = i + 1;
+    const fullName = (s.fullName || s.name || "").trim();
+    const email = (s.email || "").trim().toLowerCase();
+    const phone = (s.phone || s.mobile || "").trim();
+    const rawPassword = s.password ? String(s.password).trim() : `Student@${Math.floor(1000 + Math.random() * 9000)}`;
+
+    if (!fullName || !email) {
+      errors.push({
+        row: rowNum,
+        name: fullName || "Unnamed",
+        email: email || "Missing email",
+        reason: "Name and email are mandatory fields.",
+      });
+      continue;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      errors.push({
+        row: rowNum,
+        name: fullName,
+        email,
+        reason: "Invalid email format.",
+      });
+      continue;
+    }
+
+    const existing = await User.findOne({
+      email,
+      isDeleted: false,
+    });
+
+    if (existing) {
+      if (existing.academyId && existing.academyId.toString() === req.academy._id.toString()) {
+        const alreadyInBatch = (batch.students || []).some(
+          (stId) => stId.toString() === existing._id.toString()
+        );
+
+        if (alreadyInBatch) {
+          skipped.push({
+            row: rowNum,
+            name: fullName,
+            email,
+            reason: "Student already registered and already in this batch.",
+          });
+        } else {
+          if (existing.role === "student") {
+            newStudentIds.push(existing._id);
+            createdUsers.push({
+              _id: existing._id,
+              fullName: existing.fullName,
+              email: existing.email,
+              phone: existing.phone,
+              note: "Existing student added to batch",
+            });
+          } else {
+            skipped.push({
+              row: rowNum,
+              name: fullName,
+              email,
+              reason: `Email belongs to an account with role '${existing.role}'.`,
+            });
+          }
+        }
+      } else {
+        errors.push({
+          row: rowNum,
+          name: fullName,
+          email,
+          reason: "Email is already registered under another account or academy.",
+        });
+      }
+      continue;
+    }
+
+    try {
+      const hashedPassword = await bcrypt.hash(rawPassword, 10);
+      const user = await User.create({
+        fullName,
+        email,
+        phone,
+        password: hashedPassword,
+        role: "student",
+        academyId: req.academy._id,
+        approvalStatus: "approved",
+        status: "active",
+      });
+
+      await Student.create({
+        user: user._id,
+        academyId: req.academy._id,
+      });
+
+      newStudentIds.push(user._id);
+      createdUsers.push({
+        _id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        temporaryPassword: rawPassword,
+      });
+
+      try {
+        await sendEmail({
+          to: user.email,
+          subject: "🎉 Welcome to My Academy",
+          html: `
+            <h2>Welcome ${user.fullName},</h2>
+            <p>Your student account has been created for batch <strong>${batch.name}</strong>.</p>
+            <p><strong>Login Details:</strong></p>
+            <ul>
+              <li><strong>Email:</strong> ${user.email}</li>
+              <li><strong>Password:</strong> ${rawPassword}</li>
+            </ul>
+            <p>Regards,<br/><strong>My Academy</strong></p>
+          `,
+        });
+      } catch (emailErr) {}
+    } catch (err) {
+      errors.push({
+        row: rowNum,
+        name: fullName,
+        email,
+        reason: err.message || "Failed to create student account.",
+      });
+    }
+  }
+
+  if (newStudentIds.length > 0) {
+    batch.students.push(...newStudentIds);
+    await batch.save();
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: `Batch import complete: ${createdUsers.length} enrolled, ${skipped.length} skipped, ${errors.length} failed.`,
+    data: {
+      importedCount: createdUsers.length,
+      skippedCount: skipped.length,
+      errorCount: errors.length,
+      createdUsers,
+      skipped,
+      errors,
+      batchName: batch.name,
+      courseTitle: course.title,
+    },
+  });
+});
+
+const bulkCreateTeachers = asyncHandler(async (req, res) => {
+  const { teachers } = req.body;
+
+  if (!Array.isArray(teachers) || teachers.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Please provide a valid list of teachers to import.",
+    });
+  }
+
+  const createdUsers = [];
+  const skipped = [];
+  const errors = [];
+
+  for (let i = 0; i < teachers.length; i++) {
+    const t = teachers[i];
+    const rowNum = i + 1;
+    const fullName = (t.fullName || t.name || "").trim();
+    const email = (t.email || "").trim().toLowerCase();
+    const phone = (t.phone || t.mobile || "").trim();
+    const rawPassword = t.password ? String(t.password).trim() : `Teacher@${Math.floor(1000 + Math.random() * 9000)}`;
+
+    if (!fullName || !email) {
+      errors.push({
+        row: rowNum,
+        name: fullName || "Unnamed",
+        email: email || "Missing email",
+        reason: "Name and email are mandatory fields.",
+      });
+      continue;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      errors.push({
+        row: rowNum,
+        name: fullName,
+        email,
+        reason: "Invalid email format.",
+      });
+      continue;
+    }
+
+    const existing = await User.findOne({
+      email,
+      isDeleted: false,
+    });
+
+    if (existing) {
+      skipped.push({
+        row: rowNum,
+        name: fullName,
+        email,
+        reason: existing.academyId && existing.academyId.toString() === req.academy._id.toString()
+          ? `Account already exists in your academy with role '${existing.role}'.`
+          : "Email is already registered under another account or academy.",
+      });
+      continue;
+    }
+
+    try {
+      const hashedPassword = await bcrypt.hash(rawPassword, 10);
+      const user = await User.create({
+        fullName,
+        email,
+        phone,
+        password: hashedPassword,
+        role: "teacher",
+        academyId: req.academy._id,
+        approvalStatus: "approved",
+        status: "active",
+      });
+
+      await Teacher.create({
+        user: user._id,
+        academyId: req.academy._id,
+      });
+
+      createdUsers.push({
+        _id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        temporaryPassword: rawPassword,
+      });
+
+      try {
+        await sendEmail({
+          to: user.email,
+          subject: "🎉 Welcome to My Academy - Faculty Account",
+          html: `
+            <h2>Welcome ${user.fullName},</h2>
+            <p>Your teacher/faculty account has been created successfully.</p>
+            <p><strong>Login Credentials:</strong></p>
+            <ul>
+              <li><strong>Email:</strong> ${user.email}</li>
+              <li><strong>Password:</strong> ${rawPassword}</li>
+            </ul>
+            <p>Regards,<br/><strong>My Academy</strong></p>
+          `,
+        });
+      } catch (emailErr) {}
+    } catch (err) {
+      errors.push({
+        row: rowNum,
+        name: fullName,
+        email,
+        reason: err.message || "Failed to create teacher account.",
+      });
+    }
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: `Teacher import complete: ${createdUsers.length} added, ${skipped.length} skipped, ${errors.length} failed.`,
+    data: {
+      importedCount: createdUsers.length,
+      skippedCount: skipped.length,
+      errorCount: errors.length,
+      createdUsers,
+      skipped,
+      errors,
+    },
+  });
+});
+
 module.exports = {
-  getUsers,approveUser,getallClasses,getallAnnouncement,createStudent ,getRecentEnrollments,rejectUser,blockUser,unblockUser,getUserById,updateUserByAdmin,getDashboardStats,
-  deleteUserByAdmin,createTeacher
+  getUsers,
+  approveUser,
+  getallClasses,
+  getallAnnouncement,
+  createStudent,
+  getRecentEnrollments,
+  rejectUser,
+  blockUser,
+  unblockUser,
+  getUserById,
+  updateUserByAdmin,
+  getDashboardStats,
+  deleteUserByAdmin,
+  createTeacher,
+  bulkCreateStudents,
+  bulkCreateTeachers,
 };

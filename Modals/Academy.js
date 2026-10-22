@@ -40,7 +40,46 @@ const academySchema = new mongoose.Schema(
       default: "free",
     },
 
-   status: { type: String, enum: ['active', 'inactive', 'suspended'], default: 'active' },
+   status: {
+      type: String,
+      enum: ['pending', 'active', 'inactive', 'suspended', 'rejected', 'on_hold'],
+      default: 'pending',
+    },
+
+    approvalStatus: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected', 'on_hold'],
+      default: 'pending',
+    },
+
+    approvedAt: {
+      type: Date,
+      default: null,
+    },
+
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+
+    rejectionReason: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+
+    holdReason: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+
+    suspensionReason: {
+      type: String,
+      default: null,
+      trim: true,
+    },
       // Soft Delete
     isDeleted: {
       type: Boolean,

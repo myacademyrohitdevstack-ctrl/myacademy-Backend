@@ -75,6 +75,8 @@ const createUser = asyncHandler(async (req, res) => {
     name: academyName,
     email,
     slug,
+    status: "pending",
+    approvalStatus: "pending",
   });
 
   // Public registration must not control role or platformRole.
@@ -86,7 +88,8 @@ const createUser = asyncHandler(async (req, res) => {
     role: "admin",
     platformRole: "user",
     emailVerified: true,
-    approvalStatus: "approved",
+    approvalStatus: "pending",
+    status: "pending",
     academyId: academy._id,
   });
 
@@ -360,15 +363,27 @@ const user = await User.findOne({
   if (user.approvalStatus === "rejected") {
     return res.status(401).json({
       success: false,
-      message:
-        "Your account has been rejected. Please contact the administrator.",
+      message: user.rejectionReason
+        ? `Your account registration was rejected: ${user.rejectionReason}`
+        : "Your account has been rejected. Please contact the administrator.",
+    });
+  }
+
+  if (user.approvalStatus === "on_hold") {
+    return res.status(401).json({
+      success: false,
+      message: user.holdReason
+        ? `Your account registration is currently on hold: ${user.holdReason}`
+        : "Your account registration is currently on hold. Please contact the administrator.",
     });
   }
 
   if (user.status === "blocked") {
     return res.status(401).json({
       success: false,
-      message: "Your account has been blocked.",
+      message: user.blockReason
+        ? `Your account has been blocked: ${user.blockReason}`
+        : "Your account has been blocked.",
     });
   }
 
@@ -390,11 +405,54 @@ const user = await User.findOne({
         })
       : null;
 
-  if (!isSuperAdmin && (!academy || academy.status !== "active")) {
-    return res.status(403).json({
-      success: false,
-      message: "Academy is not active.",
-    });
+  if (!isSuperAdmin) {
+    if (!academy) {
+      return res.status(403).json({
+        success: false,
+        message: "Academy not found.",
+      });
+    }
+
+    if (academy.status === "pending") {
+      return res.status(403).json({
+        success: false,
+        message: "Your academy registration is awaiting platform administrator approval.",
+      });
+    }
+
+    if (academy.status === "on_hold") {
+      return res.status(403).json({
+        success: false,
+        message: academy.holdReason
+          ? `Your academy account is currently on hold: ${academy.holdReason}`
+          : "Your academy account is currently on hold. Please contact the administrator.",
+      });
+    }
+
+    if (academy.status === "rejected") {
+      return res.status(403).json({
+        success: false,
+        message: academy.rejectionReason
+          ? `Your academy registration was rejected: ${academy.rejectionReason}`
+          : "Your academy registration was rejected.",
+      });
+    }
+
+    if (academy.status === "suspended") {
+      return res.status(403).json({
+        success: false,
+        message: academy.suspensionReason
+          ? `Your academy account is suspended: ${academy.suspensionReason}`
+          : "Your academy account is suspended. Please contact the administrator.",
+      });
+    }
+
+    if (academy.status !== "active") {
+      return res.status(403).json({
+        success: false,
+        message: "Academy is not active.",
+      });
+    }
   }
 
   // Device information.

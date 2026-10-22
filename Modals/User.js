@@ -134,7 +134,7 @@ const userSchema = new mongoose.Schema(
 
     approvalStatus: {
       type: String,
-      enum: ["pending", "approved", "rejected"],
+      enum: ["pending", "approved", "rejected", "on_hold"],
       default: "pending",
     },
 
@@ -147,6 +147,18 @@ const userSchema = new mongoose.Schema(
     approvedAt: {
       type: Date,
       default: null,
+    },
+
+    rejectionReason: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+
+    holdReason: {
+      type: String,
+      default: null,
+      trim: true,
     },
 
     loginAttempts: {

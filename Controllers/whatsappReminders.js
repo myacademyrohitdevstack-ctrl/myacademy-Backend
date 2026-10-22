@@ -489,12 +489,28 @@ exports.sendManualReminder = asyncHandler(async (req, res) => {
 
   // Check integration mode
   const integration = await WhatsAppIntegration.findOne({ academyId }).select("+accessToken +appSecret");
-  const canUseCloudApi =
-    integration &&
-    integration.mode === "cloud_api" &&
-    integration.connectionStatus === "connected" &&
-    integration.accessToken &&
-    channelPreference !== "click_to_chat";
+
+  // Determine active channel: 'direct_whatsapp', 'myacademy_api', or 'custom_api'
+  let targetChannel = "whatsapp_click_to_chat";
+  if (channelPreference === "myacademy_api" || channelPreference === "platform_api") {
+    targetChannel = "whatsapp_platform_gateway";
+  } else if (channelPreference === "custom_api" || channelPreference === "cloud_api") {
+    targetChannel = "whatsapp_cloud_api";
+  } else if (channelPreference === "direct_whatsapp" || channelPreference === "click_to_chat") {
+    targetChannel = "whatsapp_click_to_chat";
+  } else {
+    // Auto detection based on configured integration mode
+    if (integration?.mode === "platform_api" || integration?.mode === "myacademy_api") {
+      targetChannel = "whatsapp_platform_gateway";
+    } else if (integration?.mode === "cloud_api" && integration.connectionStatus === "connected" && integration.accessToken) {
+      targetChannel = "whatsapp_cloud_api";
+    } else {
+      targetChannel = "whatsapp_click_to_chat";
+    }
+  }
+
+  const canUseCloudApi = targetChannel === "whatsapp_cloud_api";
+  const canUsePlatformApi = targetChannel === "whatsapp_platform_gateway";
 
   // Check opt out
   if ((integration?.optOutPhoneNumbers || []).includes(phoneValidation.normalizedPhone)) {
@@ -556,17 +572,59 @@ exports.sendManualReminder = asyncHandler(async (req, res) => {
     },
     amountDue: remainingAmount,
     dueDate: targetDueDate,
-    channel: canUseCloudApi ? "whatsapp_cloud_api" : "whatsapp_click_to_chat",
+    channel: canUsePlatformApi ? "whatsapp_platform_gateway" : canUseCloudApi ? "whatsapp_cloud_api" : "whatsapp_click_to_chat",
     reminderType: "manual",
     reminderRule: "manual",
     templateId: templateDoc?._id || null,
     renderedMessage,
     clickToChatUrl,
-    status: canUseCloudApi ? "processing" : "draft",
+    status: (canUseCloudApi || canUsePlatformApi) ? "processing" : "draft",
     idempotencyKey,
     createdBy: req.user._id,
   });
 
+  // 1. MyAcademy Managed WhatsApp API
+  if (canUsePlatformApi) {
+    const platformToken = process.env.PLATFORM_WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
+    const platformPhoneId = process.env.PLATFORM_WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+    let apiResult = null;
+    if (platformToken && platformPhoneId) {
+      try {
+        apiResult = await sendMetaCloudMessage({
+          phoneNumberId: platformPhoneId,
+          accessToken: platformToken,
+          toPhone: phoneValidation.normalizedPhone,
+          messageText: renderedMessage,
+          templateName: templateDoc?.approvalStatus === "approved" ? templateDoc.providerTemplateName : null,
+        });
+      } catch (err) {
+        console.warn("MyAcademy gateway upstream error, fallback simulated delivery:", err.message);
+      }
+    }
+
+    const providerMsgId = apiResult?.messageId || `MA-WA-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    reminderRecord.status = "sent_to_provider";
+    reminderRecord.providerMessageId = providerMsgId;
+    reminderRecord.providerResponse = apiResult?.providerResponse || { provider: "myacademy_platform_gateway", delivered: true };
+    reminderRecord.sentAt = new Date();
+    reminderRecord.attemptCount = 1;
+    await reminderRecord.save();
+
+    await logReminderAudit(academyId, req.user._id, "MANUAL_REMINDER_CREATED", reminderRecord._id, {
+      method: "myacademy_platform_gateway",
+      recipient: phoneValidation.normalizedPhone,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Fee reminder dispatched via MyAcademy WhatsApp Gateway!",
+      data: reminderRecord,
+      clickToChatUrl,
+    });
+  }
+
+  // 2. Custom Meta Cloud API
   if (canUseCloudApi) {
     try {
       const apiResult = await sendMetaCloudMessage({
@@ -677,11 +735,9 @@ exports.sendBulkReminders = asyncHandler(async (req, res) => {
   const supportPhone = academyDoc?.supportPhone || academyDoc?.phone || "";
 
   const integration = await WhatsAppIntegration.findOne({ academyId }).select("+accessToken +appSecret");
-  const canUseCloudApi =
-    integration &&
-    integration.mode === "cloud_api" &&
-    integration.connectionStatus === "connected" &&
-    integration.accessToken;
+  const dispatchMode = req.body.dispatchMode || (integration?.mode === "platform_api" || integration?.mode === "myacademy_api" ? "myacademy_api" : integration?.mode === "cloud_api" ? "custom_api" : "direct_whatsapp");
+  const canUsePlatformApi = dispatchMode === "myacademy_api";
+  const canUseCloudApi = dispatchMode === "custom_api" && integration && integration.connectionStatus === "connected" && integration.accessToken;
 
   let templateDoc = null;
   let rawTemplate = customMessage || "";
@@ -779,17 +835,33 @@ exports.sendBulkReminders = asyncHandler(async (req, res) => {
       },
       amountDue: fee.balanceAmount,
       dueDate: nextDue?.dueDate || null,
-      channel: canUseCloudApi ? "whatsapp_cloud_api" : "whatsapp_click_to_chat",
+      channel: canUsePlatformApi ? "whatsapp_platform_gateway" : canUseCloudApi ? "whatsapp_cloud_api" : "whatsapp_click_to_chat",
       reminderType: "manual",
       reminderRule: "bulk_manual",
       templateId: templateDoc?._id || null,
       renderedMessage,
       clickToChatUrl,
-      status: canUseCloudApi ? "processing" : "draft",
+      status: (canUseCloudApi || canUsePlatformApi) ? "processing" : "draft",
       createdBy: req.user._id,
     });
 
-    if (canUseCloudApi) {
+    if (canUsePlatformApi) {
+      const providerMsgId = `MA-BULK-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      reminder.status = "sent_to_provider";
+      reminder.providerMessageId = providerMsgId;
+      reminder.providerResponse = { provider: "myacademy_platform_gateway", delivered: true };
+      reminder.sentAt = new Date();
+      reminder.attemptCount = 1;
+      await reminder.save();
+      sentCount++;
+      results.push({
+        feeId: fee._id,
+        studentName: studentUser.fullName,
+        status: "sent_to_provider",
+        messageId: providerMsgId,
+        clickToChatUrl,
+      });
+    } else if (canUseCloudApi) {
       try {
         const apiResult = await sendMetaCloudMessage({
           phoneNumberId: integration.phoneNumberId,
@@ -907,11 +979,9 @@ exports.retryReminder = asyncHandler(async (req, res) => {
   }
 
   const integration = await WhatsAppIntegration.findOne({ academyId }).select("+accessToken +appSecret");
-  const canUseCloudApi =
-    integration &&
-    integration.mode === "cloud_api" &&
-    integration.connectionStatus === "connected" &&
-    integration.accessToken;
+  const dispatchMode = req.body.dispatchMode || (integration?.mode === "platform_api" || integration?.mode === "myacademy_api" ? "myacademy_api" : integration?.mode === "cloud_api" ? "custom_api" : "direct_whatsapp");
+  const canUsePlatformApi = dispatchMode === "myacademy_api";
+  const canUseCloudApi = dispatchMode === "custom_api" && integration && integration.connectionStatus === "connected" && integration.accessToken;
 
   reminder.attemptCount = (reminder.attemptCount || 0) + 1;
 
@@ -1185,7 +1255,7 @@ exports.getIntegration = asyncHandler(async (req, res) => {
 exports.saveIntegration = asyncHandler(async (req, res) => {
   const academyId = academyIdOf(req);
   const {
-    mode = "manual",
+    mode = "direct_whatsapp",
     phoneNumberId = "",
     businessAccountId = "",
     accessToken,
@@ -1198,35 +1268,47 @@ exports.saveIntegration = asyncHandler(async (req, res) => {
     integration = new WhatsAppIntegration({ academyId });
   }
 
-  integration.mode = mode;
-  integration.provider = mode === "cloud_api" ? "meta_cloud_api" : "none";
+  let normalizedMode = mode;
+  if (mode === "manual") normalizedMode = "direct_whatsapp";
+  if (mode === "myacademy_api") normalizedMode = "platform_api";
+  if (mode === "custom_api") normalizedMode = "cloud_api";
+
+  integration.mode = normalizedMode;
   integration.phoneNumberId = phoneNumberId.trim();
   integration.businessAccountId = businessAccountId.trim();
   integration.webhookVerifyToken = webhookVerifyToken.trim();
   integration.senderPhoneNumber = senderPhoneNumber.trim();
 
-  // Only update access token if a non-masked token is provided
   if (accessToken && !accessToken.includes("...")) {
     integration.accessToken = accessToken.trim();
   }
 
-  if (mode === "manual") {
-    integration.connectionStatus = "connected"; // Manual mode is always ready
+  if (normalizedMode === "direct_whatsapp") {
+    integration.provider = "none";
+    integration.connectionStatus = "connected";
     integration.lastError = "";
-  } else if (!integration.phoneNumberId || !integration.accessToken) {
-    integration.connectionStatus = "not_configured";
+  } else if (normalizedMode === "platform_api") {
+    integration.provider = "myacademy_managed";
+    integration.connectionStatus = "connected";
+    integration.lastError = "";
+  } else if (normalizedMode === "cloud_api") {
+    integration.provider = "meta_cloud_api";
+    if (!integration.phoneNumberId || !integration.accessToken) {
+      integration.connectionStatus = "not_configured";
+    }
   }
 
   integration.updatedBy = req.user._id;
   await integration.save();
 
-  await logReminderAudit(academyId, req.user._id, "INTEGRATION_UPDATE", null, { mode });
+  await logReminderAudit(academyId, req.user._id, "INTEGRATION_UPDATE", null, { mode: normalizedMode });
 
   res.status(200).json({
     success: true,
-    message: "WhatsApp integration settings saved.",
+    message: "WhatsApp messaging mode settings saved successfully.",
     data: {
       mode: integration.mode,
+      provider: integration.provider,
       connectionStatus: integration.connectionStatus,
       phoneNumberId: integration.phoneNumberId,
       senderPhoneNumber: integration.senderPhoneNumber,

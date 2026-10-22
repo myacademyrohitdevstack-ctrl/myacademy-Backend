@@ -11,12 +11,12 @@ const whatsAppIntegrationSchema = new mongoose.Schema(
     },
     mode: {
       type: String,
-      enum: ["manual", "cloud_api"],
-      default: "manual",
+      enum: ["manual", "direct_whatsapp", "cloud_api", "custom_api", "platform_api", "myacademy_api"],
+      default: "direct_whatsapp",
     },
     provider: {
       type: String,
-      enum: ["none", "meta_cloud_api"],
+      enum: ["none", "meta_cloud_api", "myacademy_managed"],
       default: "none",
     },
     // Meta Cloud API Credentials

@@ -49,7 +49,7 @@ const feeReminderSchema = new mongoose.Schema(
     },
     channel: {
       type: String,
-      enum: ["whatsapp_click_to_chat", "whatsapp_cloud_api"],
+      enum: ["whatsapp_click_to_chat", "whatsapp_cloud_api", "whatsapp_platform_gateway"],
       default: "whatsapp_click_to_chat",
     },
     reminderType: {
