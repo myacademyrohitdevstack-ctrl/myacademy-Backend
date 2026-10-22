@@ -39,6 +39,7 @@ app.use("/api/class", require("./Routes/classLink"));
 app.use("/api/notes", require("./Routes/note"));
 app.use("/api/announcements", require("./Routes/announcement"));
 app.use("/api/attendence", require("./Routes/attendence"));
+app.use("/api/fees", require("./Routes/fees"));
 
 app.use((req, res) => {
   res.status(404).json({ message: "Route not found" });
