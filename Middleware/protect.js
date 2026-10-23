@@ -72,15 +72,6 @@ const protect = asyncHandler(async (req, res, next) => {
     }
   }
 
-  // Email verification check: Unverified accounts cannot access protected features
-  if (user.platformRole !== "super_admin" && user.emailVerified === false) {
-    return res.status(403).json({
-      success: false,
-      code: "EMAIL_NOT_VERIFIED",
-      message: "Please verify your email address to access this resource.",
-    });
-  }
-
   // Account security checks.
   if (user.status === "blocked") {
     return res.status(401).json({

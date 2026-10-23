@@ -368,15 +368,6 @@ const login = asyncHandler(async (req, res) => {
     });
   }
 
-  // Email verification check
-  if (user.platformRole !== "super_admin" && user.emailVerified === false) {
-    return res.status(403).json({
-      success: false,
-      code: "EMAIL_NOT_VERIFIED",
-      message: "Your email address is not verified. Please verify your email before logging in.",
-    });
-  }
-
   // Approval status checks
   if (user.approvalStatus === "pending") {
     return res.status(401).json({
