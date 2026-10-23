@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Batch = require("../Modals/Batches");
 const { assertResourceLimit } = require("../Utils/planEnforcer");
 const Student  = require("../Modals/Student");
@@ -65,14 +66,23 @@ const getBatches = asyncHandler(async (req, res) => {
   });
 });
 const getBatchById = asyncHandler(async (req, res) => {
+  const { batchId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(batchId)) {
+    return res.status(404).json({
+      success: false,
+      message: "Batch not found.",
+    });
+  }
+
   const batch = await Batch.findOne({
-    _id:req.params.batchId,
-    academyId:req.academy._id,
-      isDeleted:false
+    _id: batchId,
+    academyId: req.academy._id,
+    isDeleted: false,
   })
     .populate("course")
     .populate("students")
-    .populate("trainers")
+    .populate("trainers");
 
   if (!batch) {
     return res.status(404).json({

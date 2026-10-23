@@ -143,10 +143,20 @@ const updateProfile = asyncHandler(async (req, res) => {
 });
 const getStudentBatches = asyncHandler(
   async (req, res) => {
+    const targetStudentId = req.user.role === "student" ? req.user._id : (req.params.studentId || req.user._id);
+
+    if (!mongoose.Types.ObjectId.isValid(targetStudentId)) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        batches: [],
+      });
+    }
+
     const batches = await Batches.find({
-      students: req.params.studentId,
-      academyId:req.academy._id,
-        isDeleted:false
+      students: targetStudentId,
+      academyId: req.academy._id,
+      isDeleted: false,
     })
       .populate("course")
       .populate("trainers")
@@ -162,11 +172,18 @@ const getStudentBatches = asyncHandler(
 const getStudentNotes = asyncHandler(async (req, res) => {
   const { batchId } = req.params;
 
+  if (!mongoose.Types.ObjectId.isValid(batchId)) {
+    return res.status(404).json({
+      success: false,
+      message: "Batch not found",
+    });
+  }
+
   const batch = await Batches.findOne({
     _id: batchId,
     students: req.user._id,
-    academyId:req.academy._id,
-      isDeleted:false
+    academyId: req.academy._id,
+    isDeleted: false,
   });
 
   if (!batch) {
@@ -178,8 +195,8 @@ const getStudentNotes = asyncHandler(async (req, res) => {
 
   const notes = await Note.find({
     batch: batchId,
-    academyId:req.academy._id,
-      isDeleted:false
+    academyId: req.academy._id,
+    isDeleted: false,
   })
     .populate("createdBy", "fullName")
     .sort("-createdAt");
@@ -194,11 +211,18 @@ const getStudentNotes = asyncHandler(async (req, res) => {
 const getStudentClassLinks = asyncHandler(async (req, res) => {
   const { batchId } = req.params;
 
+  if (!mongoose.Types.ObjectId.isValid(batchId)) {
+    return res.status(404).json({
+      success: false,
+      message: "Batch not found",
+    });
+  }
+
   const batch = await Batches.findOne({
     _id: batchId,
     students: req.user._id,
-    academyId:req.academy._id,
-      isDeleted:false
+    academyId: req.academy._id,
+    isDeleted: false,
   });
 
   if (!batch) {
@@ -210,8 +234,8 @@ const getStudentClassLinks = asyncHandler(async (req, res) => {
 
   const classLinks = await ClassLink.find({
     batch: batchId,
-    academyId:req.academy._id,
-      isDeleted:false
+    academyId: req.academy._id,
+    isDeleted: false,
   })
     .populate("createdBy", "fullName")
     .sort({ meetingDate: 1 });
@@ -225,13 +249,21 @@ const getStudentClassLinks = asyncHandler(async (req, res) => {
 const getStudentBatchById = asyncHandler(async (req, res) => {
   const { batchId } = req.params;
 
+  if (!mongoose.Types.ObjectId.isValid(batchId)) {
+    return res.status(404).json({
+      success: false,
+      message: "Batch not found",
+    });
+  }
+
   const batch = await Batches.findOne({
     _id: batchId,
-    academyId:req.academy._id,
+    academyId: req.academy._id,
     students: req.user._id,
-      isDeleted:false
-  }).populate("course","title")
-  .populate("trainers","fullName")
+    isDeleted: false,
+  })
+    .populate("course", "title")
+    .populate("trainers", "fullName");
 
   if (!batch) {
     return res.status(404).json({
@@ -239,7 +271,6 @@ const getStudentBatchById = asyncHandler(async (req, res) => {
       message: "Batch not found",
     });
   }
-
 
   res.status(200).json({
     success: true,
