@@ -1,4 +1,3 @@
-
 const jwt = require("jsonwebtoken");
 const User = require("../Modals/User");
 const Academy = require("../Modals/Academy");
@@ -26,7 +25,10 @@ const protect = asyncHandler(async (req, res, next) => {
   let decoded;
 
   try {
-    decoded = jwt.verify(token, process.env.ACCESS_SECRET);
+    // Pin algorithm to HS256 to reject 'alg: none' and mismatch attacks
+    decoded = jwt.verify(token, process.env.ACCESS_SECRET, {
+      algorithms: ["HS256"],
+    });
   } catch (error) {
     return res.status(403).json({
       success: false,
@@ -55,6 +57,27 @@ const protect = asyncHandler(async (req, res, next) => {
       success: false,
       code: "TOKEN-EXPIRE",
       message: "User not found or account deleted.",
+    });
+  }
+
+  // Session invalidation on password change
+  if (user.passwordChangedAt && decoded.iat) {
+    const changedTimestamp = Math.floor(user.passwordChangedAt.getTime() / 1000);
+    if (decoded.iat < changedTimestamp) {
+      return res.status(401).json({
+        success: false,
+        code: "TOKEN-EXPIRE",
+        message: "Password was changed recently. Please log in again.",
+      });
+    }
+  }
+
+  // Email verification check: Unverified accounts cannot access protected features
+  if (user.platformRole !== "super_admin" && user.emailVerified === false) {
+    return res.status(403).json({
+      success: false,
+      code: "EMAIL_NOT_VERIFIED",
+      message: "Please verify your email address to access this resource.",
     });
   }
 

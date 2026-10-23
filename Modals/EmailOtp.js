@@ -1,4 +1,4 @@
-const mongoose=require('mongoose')
+const mongoose = require("mongoose");
 
 const emailOtpSchema = new mongoose.Schema(
   {
@@ -9,7 +9,6 @@ const emailOtpSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
-   
 
     otp: {
       type: String,
@@ -19,7 +18,7 @@ const emailOtpSchema = new mongoose.Schema(
 
     purpose: {
       type: String,
-      enum: ["register", "login", "forgot-password"],
+      enum: ["register", "login", "forgot-password", "reset-password", "2fa-login"],
       default: "register",
     },
 
@@ -37,24 +36,25 @@ const emailOtpSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
-      resendCount: {
+    resendCount: {
       type: Number,
       default: 0,
     },
-       lastSentAt: {
+    lastSentAt: {
       type: Date,
       default: Date.now,
-    }
+    },
   },
   {
     timestamps: true,
   }
 );
+
 // Automatically delete expired OTP documents
 emailOtpSchema.index(
   { expiresAt: 1 },
   { expireAfterSeconds: 0 }
 );
-EmailOtp=mongoose.model("EmailOtp", emailOtpSchema);
-module.exports=EmailOtp
-  
+
+const EmailOtp = mongoose.model("EmailOtp", emailOtpSchema);
+module.exports = EmailOtp;

@@ -1,4 +1,3 @@
-
 const jwt = require("jsonwebtoken");
 
 const generateAccessToken = (user) => {
@@ -14,6 +13,7 @@ const generateAccessToken = (user) => {
 
   return jwt.sign(payload, process.env.ACCESS_SECRET, {
     expiresIn: "15m",
+    algorithm: "HS256",
   });
 };
 
@@ -26,6 +26,7 @@ const generateRefreshToken = (user) => {
 
   return jwt.sign(payload, process.env.REFRESH_SECRET, {
     expiresIn: "7d",
+    algorithm: "HS256",
   });
 };
 
