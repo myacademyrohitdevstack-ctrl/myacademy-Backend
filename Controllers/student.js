@@ -448,10 +448,20 @@ const getLoggedStudentStatics =
 
 
 const getStudentAttendanceDashboard = asyncHandler(async (req, res) => {
-  const studentId = req.user._id;
+  const studentDoc = await Student.findOne({
+    $or: [{ user: req.user._id }, { _id: req.user._id }],
+    academyId: req.academy._id,
+    isDeleted: false,
+  });
+
+  const matchedIds = [
+    req.user._id,
+    studentDoc?._id,
+    studentDoc?.user,
+  ].filter(Boolean);
 
   const attendance = await Attendance.find({
-    "records.student": studentId,
+    "records.student": { $in: matchedIds },
     academyId: req.academy._id,
     isDeleted: false,
   })
@@ -466,7 +476,7 @@ const getStudentAttendanceDashboard = asyncHandler(async (req, res) => {
 
   attendance.forEach((item) => {
     const record = item.records.find(
-      (r) => r.student.toString() === studentId.toString()
+      (r) => matchedIds.some((id) => String(id) === String(r.student))
     );
 
     if (!record) return;

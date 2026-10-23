@@ -185,19 +185,10 @@ const addStudentToBatch = asyncHandler(
     }
 
     const student = await Student.findOne({
-     _id: studentId,
-     academyId:req.academy._id,
-       isDeleted:false
-  });
-// also updated student count in couse 
-
-
-
-
-
-
-
-
+      $or: [{ _id: studentId }, { user: studentId }],
+      academyId: req.academy._id,
+      isDeleted: false,
+    });
 
     if (!student) {
       return res.status(404).json({
@@ -206,19 +197,22 @@ const addStudentToBatch = asyncHandler(
       });
     }
 
-  const alreadyAdded = batch.students.some(
-  id => id.equals(studentId)
-);
+    const canonicalUserId = student.user || student._id;
+
+    const alreadyAdded = batch.students.some(
+      (id) =>
+        id.toString() === canonicalUserId.toString() ||
+        id.toString() === student._id.toString()
+    );
 
     if (alreadyAdded) {
       return res.status(400).json({
         success: false,
-        message:
-          "Student already exists in this batch.",
+        message: "Student already exists in this batch.",
       });
     }
 
-    batch.students.push(studentId);
+    batch.students.push(canonicalUserId);
 
     await batch.save();
 

@@ -212,34 +212,50 @@ const getBatchAttendanceHistory = asyncHandler(async (req, res) => {
  */
 const getStudentAttendance = asyncHandler(async (req, res) => {
   const { studentId } = req.params;
-const studentExists = await User.findOne({
-  _id: studentId,
-  academyId: req.academy._id,
-    isDeleted:false
-});
 
-  if (!studentExists) {
+  const studentDoc = await Student.findOne({
+    $or: [{ user: studentId }, { _id: studentId }],
+    academyId: req.academy._id,
+    isDeleted: false,
+  });
+
+  const studentExists = await User.findOne({
+    $or: [{ _id: studentId }, { _id: studentDoc?.user }],
+    academyId: req.academy._id,
+    isDeleted: false,
+  });
+
+  if (!studentExists && !studentDoc) {
     return res.status(400).json({
       success: false,
-      message: "Student  Not found",
+      message: "Student Not found",
     });
   }
+
+  const matchedIds = [
+    studentId,
+    studentDoc?._id,
+    studentDoc?.user,
+    studentExists?._id,
+  ].filter(Boolean);
+
   const attendance = await Attendance.find({
-    "records.student": studentId,
-       academyId:req.academy._id,
-         isDeleted:false
+    "records.student": { $in: matchedIds },
+    academyId: req.academy._id,
+    isDeleted: false,
   })
-    .populate("batch", "batchName")
+    .populate("batch", "name")
     .sort({ date: -1 });
 
   const report = attendance.map((item) => {
     const studentRecord = item.records.find(
-      (record) => record.student.toString() === studentId
+      (record) => matchedIds.some((id) => String(id) === String(record.student))
     );
 
     return {
       attendanceId: item._id,
       batch: item.batch,
+      batchName: item.batch?.name || "Classroom Session",
       date: item.date,
       status: studentRecord?.status || null,
     };
