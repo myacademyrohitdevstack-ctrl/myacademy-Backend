@@ -452,10 +452,11 @@ const getStudentAttendanceDashboard = asyncHandler(async (req, res) => {
 
   const attendance = await Attendance.find({
     "records.student": studentId,
-    academyId:req.academy._id,
-      isDeleted:false
+    academyId: req.academy._id,
+    isDeleted: false,
   })
-    .select("date records")
+    .populate("batch", "name")
+    .select("date records batch")
     .sort({ date: -1 });
 
   let present = 0;
@@ -478,6 +479,7 @@ const getStudentAttendanceDashboard = asyncHandler(async (req, res) => {
 
     recentAttendance.push({
       attendanceId: item._id,
+      batchName: item.batch?.name || "Classroom Session",
       date: item.date,
       status: record.status,
     });
@@ -487,13 +489,13 @@ const getStudentAttendanceDashboard = asyncHandler(async (req, res) => {
 
   const attendancePercentage =
     totalClasses === 0
-      ? 0
+      ? null
       : Math.round((present / totalClasses) * 100);
 
   const requiredAttendance = 75;
 
   const eligible =
-    attendancePercentage >= requiredAttendance;
+    attendancePercentage === null || attendancePercentage >= requiredAttendance;
 
   // Current Present Streak
   let currentStreak = 0;

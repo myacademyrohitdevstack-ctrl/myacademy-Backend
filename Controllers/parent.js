@@ -34,15 +34,41 @@ const getChildDashboard = asyncHandler(async (req, res) => {
     User.findOne({ _id: studentUserId, academyId: req.academy._id, role: 'student', isDeleted: false }).select('fullName email phone profileImage status'),
     Student.findOne({ user: studentUserId, academyId: req.academy._id, isDeleted: false }),
     Batch.find({ academyId: req.academy._id, students: studentUserId, isDeleted: false }).populate('course', 'title name').populate('trainers', 'fullName'),
-    Attendance.find({ academyId: req.academy._id, isDeleted: false, 'records.student': studentUserId }).sort({ date: -1 }).limit(30).select('batch date records'),
+    Attendance.find({ academyId: req.academy._id, isDeleted: false, 'records.student': studentUserId }).populate('batch', 'name').sort({ date: -1 }).limit(30).select('batch date records'),
   ]);
   if (!student) return res.status(404).json({ success: false, message: 'Student record not found.' });
-  const records = attendance.map(a => ({ date: a.date, batch: a.batch, status: a.records.find(r => String(r.student) === String(studentUserId))?.status || null }));
+  const records = attendance.map(a => ({
+    date: a.date,
+    batch: a.batch?._id || a.batch,
+    batchName: a.batch?.name || 'Classroom Session',
+    status: a.records.find(r => String(r.student) === String(studentUserId))?.status || null
+  }));
   const marked = records.filter(r => r.status === 'present' || r.status === 'absent');
   const present = marked.filter(r => r.status === 'present').length;
+  const absent = marked.length - present;
   const attendancePercentage = marked.length ? Math.round((present / marked.length) * 100) : null;
+
+  let currentStreak = 0;
+  for (const item of records) {
+    if (item.status === 'present') {
+      currentStreak++;
+    } else if (item.status === 'absent') {
+      break;
+    }
+  }
+
+  const attendanceSummary = {
+    present,
+    absent,
+    total: marked.length,
+    percentage: attendancePercentage,
+    currentStreak,
+    requiredPercentage: 75,
+    isEligible: attendancePercentage === null || attendancePercentage >= 75,
+  };
+
   const announcements = await Announcement.find({ academyId: req.academy._id, isDeleted: false, isPublished: true, publishAt: { $lte: new Date() }, $or: [{ targetType: 'system' }, { targetType: 'course', course: { $in: batches.map(b => b.course?._id).filter(Boolean) } }, { targetType: 'batch', batch: { $in: batches.map(b => b._id) } }] }).sort({ isPinned: -1, publishAt: -1 }).limit(10).select('title message targetType priority publishAt expiresAt batch course');
-  res.json({ success: true, data: { student, profile, batches, attendance: records, attendancePercentage, announcements } });
+  res.json({ success: true, data: { student, profile, batches, attendance: records, attendancePercentage, attendanceSummary, announcements } });
 });
 
 const getChildAttendance = asyncHandler(async (req, res) => {
