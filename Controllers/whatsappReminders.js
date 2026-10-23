@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const asyncHandler = require("../Utils/asyncHandler");
+const { assertFeatureEnabled } = require("../Utils/planEnforcer");
 const FeeReminder = require("../Modals/FeeReminder");
 const StudentFee = require("../Modals/StudentFee");
 const FeePayment = require("../Modals/FeePayment");
@@ -420,6 +421,7 @@ exports.previewReminder = asyncHandler(async (req, res) => {
 // 4. MANUAL & BULK SENDING
 // ----------------------------------------------------
 exports.sendManualReminder = asyncHandler(async (req, res) => {
+  await assertFeatureEnabled(req.academy._id, "whatsapp_reminders");
   const academyId = academyIdOf(req);
   const {
     studentFeeId,
@@ -684,6 +686,7 @@ exports.sendManualReminder = asyncHandler(async (req, res) => {
 });
 
 exports.sendBulkReminders = asyncHandler(async (req, res) => {
+  await assertFeatureEnabled(req.academy._id, "whatsapp_reminders");
   const academyId = academyIdOf(req);
   const {
     filterType = "all_pending", // 'all_pending', 'overdue', 'due_today', 'selected'

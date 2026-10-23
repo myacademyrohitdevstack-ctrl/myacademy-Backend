@@ -1,10 +1,12 @@
 const Course = require("../Modals/Courses");
+const { assertResourceLimit } = require("../Utils/planEnforcer");
 const asyncHandler = require("../Utils/asyncHandler");
 
 const generateUniqueSlug = require("../Utils/generateUniqueSlug");
 const uploadToCloudinary = require("../Utils/Cloudinary");
-const createCourse = asyncHandler(
-  async (req, res) => {
+const createCourse = asyncHandler(async (req, res) => {
+    // Enforce SaaS plan course quota
+    await assertResourceLimit(req.academy._id, "courses", 1);
     let thumbnail = {
       public_id: "",
       url: "",

@@ -9,6 +9,8 @@ const platformPlanSchema = new mongoose.Schema({
   trialDays: { type: Number, min: 0, default: 0 },
   limits: {
     students: { type: Number, min: -1, default: 100 },
+    courses: { type: Number, min: -1, default: 10 },
+    batches: { type: Number, min: -1, default: 20 },
     staff: { type: Number, min: -1, default: 10 },
     branches: { type: Number, min: -1, default: 1 },
   },

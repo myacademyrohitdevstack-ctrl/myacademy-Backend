@@ -8,6 +8,7 @@ const FeePlan = require("../Modals/FeePlan");
 const StudentFee = require("../Modals/StudentFee");
 const FeePayment = require("../Modals/FeePayment");
 const { httpError, isObjectId, money, nextReceiptNumber, recalculateFee } = require("../Utils/fees");
+const { assertFeatureEnabled } = require("../Utils/planEnforcer");
 
 const academyIdOf = req => req.academy._id;
 const activeFeeFilter = req => ({ academyId: academyIdOf(req), isDeleted: false });
@@ -66,6 +67,7 @@ exports.listFeePlans = asyncHandler(async (req, res) => {
 });
 
 exports.createFeePlan = asyncHandler(async (req, res) => {
+  await assertFeatureEnabled(academyIdOf(req), "fee_management");
   const { name, description = "", course = null, batch = null, totalAmount, frequency = "monthly", installments = 1, lateFeeAmount = 0, lateFeeGraceDays = 0, installmentTemplate = [] } = req.body;
   if (!name || !String(name).trim()) throw httpError(400, "Fee plan name is required.");
   const total = money(totalAmount, "totalAmount");
@@ -203,6 +205,7 @@ exports.getStudentFeeSummary = asyncHandler(async (req, res) => {
 });
 
 exports.collectPayment = asyncHandler(async (req, res) => {
+  await assertFeatureEnabled(academyIdOf(req), "fee_management");
   const { studentFeeId, amount, mode, referenceNumber = "", paidAt = new Date(), remarks = "", installmentId = null } = req.body;
   requireId(studentFeeId, "student fee id");
   const paymentAmount = money(amount, "amount");

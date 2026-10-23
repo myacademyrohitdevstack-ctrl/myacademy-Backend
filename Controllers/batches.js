@@ -1,8 +1,11 @@
 const Batch = require("../Modals/Batches");
+const { assertResourceLimit } = require("../Utils/planEnforcer");
 const Student  = require("../Modals/Student");
 const Course = require("../Modals/Courses");
 const asyncHandler = require("../Utils/asyncHandler");
 const createBatch = asyncHandler(async (req, res) => {
+  // Enforce SaaS plan batch quota
+  await assertResourceLimit(req.academy._id, "batches", 1);
   const course = await Course.findOne({
    _id: req.params.courseId,
    academyId:req.academy._id,

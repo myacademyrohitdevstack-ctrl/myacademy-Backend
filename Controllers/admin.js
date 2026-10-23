@@ -12,6 +12,7 @@ const Announcement = require("../Modals/Announcement");
 const Course = require("../Modals/Courses");
 const Batch = require("../Modals/Batches");
 const mongoose = require("mongoose");
+const { assertResourceLimit, getUsageSummary } = require("../Utils/planEnforcer");
 
 const getUsers = asyncHandler(async (req, res) => {
   const {
@@ -691,6 +692,9 @@ const announcements = await Announcement.find({
 const createStudent = asyncHandler(async (req, res) => {
   const { fullName, email, phone, courseId, batchId, password } = req.body;
 
+  // Enforce SaaS plan student quota
+  await assertResourceLimit(req.academy._id, "students", 1);
+
   const session = await mongoose.startSession();
 
   let createdUser;
@@ -832,6 +836,9 @@ const createStudent = asyncHandler(async (req, res) => {
 });
 const createTeacher = asyncHandler(async (req, res) => {
   const { fullName, email, phone, password } = req.body;
+
+  // Enforce SaaS plan staff quota
+  await assertResourceLimit(req.academy._id, "staff", 1);
 
   const session = await mongoose.startSession();
 
@@ -1061,6 +1068,9 @@ const bulkCreateStudents = asyncHandler(async (req, res) => {
     });
   }
 
+  // Enforce SaaS plan student quota for bulk import
+  await assertResourceLimit(req.academy._id, "students", students.length);
+
   const course = await Course.findOne({
     _id: courseId,
     academyId: req.academy._id,
@@ -1254,6 +1264,9 @@ const bulkCreateTeachers = asyncHandler(async (req, res) => {
     });
   }
 
+  // Enforce SaaS plan staff quota for bulk import
+  await assertResourceLimit(req.academy._id, "staff", teachers.length);
+
   const createdUsers = [];
   const skipped = [];
   const errors = [];
@@ -1370,7 +1383,16 @@ const bulkCreateTeachers = asyncHandler(async (req, res) => {
   });
 });
 
+const getSubscriptionUsage = asyncHandler(async (req, res) => {
+  const usage = await getUsageSummary(req.academy._id);
+  res.status(200).json({
+    success: true,
+    data: usage,
+  });
+});
+
 module.exports = {
+  getSubscriptionUsage,
   getUsers,
   approveUser,
   getallClasses,

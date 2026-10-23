@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const asyncHandler = require("../Utils/asyncHandler");
+const { assertFeatureEnabled } = require("../Utils/planEnforcer");
 const Exam = require("../Modals/Exam");
 const ExamResult = require("../Modals/ExamResult");
 const Batch = require("../Modals/Batches");

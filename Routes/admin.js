@@ -1,6 +1,7 @@
 const { createParent } = require("../Controllers/parent");
 const express = require("express");
 const {
+  getSubscriptionUsage,
   getUsers,
   approveUser,
   rejectUser,
@@ -25,6 +26,7 @@ const router = express.Router();
 router.get('/users', protect, authorize("admin"), getUsers);
 router.get('/user/:id', protect, authorize("admin"), getUserById);
 router.get('/dashboard-stats', protect, authorize("admin"), getDashboardStats);
+router.get('/subscription-usage', protect, authorize("admin"), getSubscriptionUsage);
 router.get('/recent-activties', protect, authorize("admin"), getRecentEnrollments);
 router.get('/all-classes', protect, authorize("admin"), getallClasses);
 router.get('/all-announcements', protect, authorize("admin"), getallAnnouncement);

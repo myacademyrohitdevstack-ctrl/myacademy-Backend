@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const asyncHandler = require("../Utils/asyncHandler");
+const { assertFeatureEnabled } = require("../Utils/planEnforcer");
 const Homework = require("../Modals/Homework");
 const HomeworkSubmission = require("../Modals/HomeworkSubmission");
 const Batch = require("../Modals/Batches");
@@ -14,9 +15,15 @@ const createHomework = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: "Batch, title, description, and due date are required." });
   }
 
+  await assertFeatureEnabled(req.academy._id, "homework");
+
   const batch = await Batch.findOne({ _id: batchId, academyId: req.academy._id, isDeleted: false });
   if (!batch) {
     return res.status(404).json({ success: false, message: "Batch not found." });
+  }
+
+  if (req.user.role === "teacher" && !batch.trainers.some(t => t.toString() === req.user._id.toString())) {
+    return res.status(403).json({ success: false, message: "You are not authorized to assign homework for this batch." });
   }
 
   const homework = await Homework.create({
