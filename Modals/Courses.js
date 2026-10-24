@@ -114,7 +114,4 @@ courseSchema.index({
   status: 1,
 });
 
-courseSchema.index({
-  slug: 1,
-});
 module.exports= mongoose.model("Course", courseSchema);
