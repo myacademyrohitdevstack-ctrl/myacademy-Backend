@@ -16,11 +16,11 @@ const {
 } = require("../Controllers/batches");
 
 router.get("/", protect, getAllAcademyBatches);
-router.post("/:courseId/batches", protect, createBatch);
+router.post("/:courseId/batches", protect, authorize("admin"), createBatch);
 router.get("/:slug/batches", protect, getBatches);
 router.get("/:batchId/byId", protect, getBatchById);
 router.patch("/:batchId/update", protect, updateBatch);
-router.delete("/:courseId/batches/:batchId", protect, deleteBatch);
+router.delete("/:courseId/batches/:batchId", protect, authorize("admin"), deleteBatch);
 router.post("/:batchId/students", protect, addStudentToBatch);
 router.get("/:batchId/students", protect, getBatchStudents);
 router.delete("/:batchId/students/:studentId", protect, removeStudentFromBatch);

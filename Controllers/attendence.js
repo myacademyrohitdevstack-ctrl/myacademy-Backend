@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const asyncHandler = require("../Utils/asyncHandler");
 const Attendance = require("../Modals/Attendence");
 const Batch = require("../Modals/Batches");
@@ -459,6 +460,13 @@ const getAttendanceDashboard = asyncHandler(async (req, res) => {
 
 const getAttendanceById = asyncHandler(async (req, res) => {
   const { attendanceId } = req.params;
+
+  if (!attendanceId || !mongoose.isValidObjectId(attendanceId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid or missing attendance ID.",
+    });
+  }
 
   const attendance = await Attendance.findOne({
     _id: attendanceId,

@@ -295,14 +295,7 @@ const getAllAcademyBatches = asyncHandler(async (req, res) => {
   };
 
   if (req.user.role === "teacher") {
-    const teacherBatches = await Batch.find({
-      academyId: req.academy._id,
-      trainers: req.user._id,
-      isDeleted: false,
-    });
-    if (teacherBatches && teacherBatches.length > 0) {
-      query.trainers = req.user._id;
-    }
+    query.trainers = req.user._id;
   }
 
   const batches = await Batch.find(query)

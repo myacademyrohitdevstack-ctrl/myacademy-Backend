@@ -17,11 +17,11 @@ router.get("/:courseId",protect, getCourseById);
 
 router.patch("/:courseId",protect, updateCourse);
 
-router.delete("/:courseId",protect, deleteCourse);
+router.delete("/:courseId",protect,authorize("admin"), deleteCourse);
 
-router.patch("/:courseId/publish",protect, publishCourse);
+router.patch("/:courseId/publish",protect,authorize("admin"), publishCourse);
 
-router.patch("/:courseId/archive",protect, archiveCourse);
+router.patch("/:courseId/archive",protect,authorize("admin"), archiveCourse);
 module.exports = router;
 
 // import { Router } from "express";

@@ -115,37 +115,117 @@ const getTeacherDashboardStats = asyncHandler(async (req, res) => {
 });
 
 const getTeacherRecentEnrollments = asyncHandler(async (req, res) => {
+  const teacherId = req.user._id;
+  const academyId = req.academy._id;
+
+  // 1. Fetch batches assigned to this teacher
   const batches = await Batch.find({
-    academyId: req.academy._id,
-    trainers: req.user._id,
+    academyId,
+    trainers: teacherId,
     isDeleted: false,
   })
     .populate("course", "title")
     .populate(
       "students",
-      "fullName email status approvalStatus createdAt"
+      "fullName email phone status approvalStatus createdAt"
     );
 
   const enrollmentMap = new Map();
 
   batches.forEach((batch) => {
-    batch.students.forEach((student) => {
-      if (!enrollmentMap.has(student._id.toString())) {
+    (batch.students || []).forEach((student) => {
+      if (student && student._id && !enrollmentMap.has(student._id.toString())) {
+        const courseTitle = batch.course?.title || "General Cohort";
         enrollmentMap.set(student._id.toString(), {
+          _id: student._id,
           id: student._id,
           name: student.fullName,
+          email: student.email,
           batch: batch.name,
-          course: batch.course?.title || "N/A",
-          status: student.approvalStatus,
+          course: {
+            title: courseTitle,
+          },
+          student: {
+            _id: student._id,
+            fullName: student.fullName,
+            email: student.email,
+            phone: student.phone,
+            status: student.status,
+            approvalStatus: student.approvalStatus,
+          },
+          status: student.approvalStatus || student.status || "active",
           enrolledAt: student.createdAt,
+          createdAt: student.createdAt,
         });
       }
     });
   });
 
-  const enrollments = [...enrollmentMap.values()].sort(
+  let enrollments = [...enrollmentMap.values()].sort(
     (a, b) => new Date(b.enrolledAt) - new Date(a.enrolledAt)
   );
+
+  // 2. Fallback: If teacher has no assigned batches or 0 batch students, show academy recent admissions
+  if (enrollments.length === 0) {
+    const recentAcademyStudents = await User.find({
+      academyId,
+      role: "student",
+      isDeleted: false,
+    })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .select("fullName email phone status approvalStatus createdAt");
+
+    if (recentAcademyStudents.length > 0) {
+      const allBatches = await Batch.find({
+        academyId,
+        isDeleted: false,
+      })
+        .populate("course", "title")
+        .select("name course students");
+
+      const studentBatchMap = new Map();
+      allBatches.forEach((batch) => {
+        (batch.students || []).forEach((stId) => {
+          const idStr = (stId._id || stId).toString();
+          if (!studentBatchMap.has(idStr)) {
+            studentBatchMap.set(idStr, {
+              batch: batch.name,
+              courseTitle: batch.course?.title || "General Cohort",
+            });
+          }
+        });
+      });
+
+      enrollments = recentAcademyStudents.map((student) => {
+        const batchInfo = studentBatchMap.get(student._id.toString());
+        const courseTitle = batchInfo?.courseTitle || "General Admission";
+        const batchName = batchInfo?.batch || "Unassigned";
+
+        return {
+          _id: student._id,
+          id: student._id,
+          name: student.fullName,
+          email: student.email,
+          batch: batchName,
+          course: {
+            title: courseTitle,
+          },
+          student: {
+            _id: student._id,
+            fullName: student.fullName,
+            email: student.email,
+            phone: student.phone,
+            status: student.status,
+            approvalStatus: student.approvalStatus,
+          },
+          status: student.approvalStatus || student.status || "active",
+          enrolledAt: student.createdAt,
+          createdAt: student.createdAt,
+        };
+      });
+    }
+  }
 
   res.status(200).json({
     success: true,
@@ -153,7 +233,6 @@ const getTeacherRecentEnrollments = asyncHandler(async (req, res) => {
     enrollments: enrollments.slice(0, 10),
   });
 });
-
 const getTeacherClasses = asyncHandler(async (req, res) => {
 
   const batchIds = await Batch.find({

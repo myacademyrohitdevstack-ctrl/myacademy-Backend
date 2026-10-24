@@ -25,9 +25,10 @@ const getUsers = asyncHandler(async (req, res) => {
     sort = "newest",
   } = req.query;
 
-  const currentPage = Math.max(Number(page), 1);
-  const perPage = Math.min(Number(limit), 100);
-  const skip = (currentPage - 1) * perPage;
+  const isAll = limit === "all" || limit === "0" || Number(limit) === 0;
+  const currentPage = Math.max(Number(page) || 1, 1);
+  const perPage = isAll ? 0 : Math.max(1, Math.min(Number(limit) || 10, 10000));
+  const skip = isAll ? 0 : (currentPage - 1) * perPage;
 
   const filter = {};
 
@@ -72,11 +73,15 @@ const getUsers = asyncHandler(async (req, res) => {
 filter.isDeleted = false;
 
   const [users, totalUsers] = await Promise.all([
-    User.find(filter)
-      .select("-password -refreshToken")
-      .sort(sortQuery)
-      .skip(skip)
-      .limit(perPage),
+    (() => {
+      let q = User.find(filter)
+        .select("-password -refreshToken")
+        .sort(sortQuery);
+      if (!isAll) {
+        q = q.skip(skip).limit(perPage);
+      }
+      return q;
+    })(),
 
     User.countDocuments(filter),
   ]);
@@ -86,11 +91,11 @@ filter.isDeleted = false;
     users,
     pagination: {
       page: currentPage,
-      limit: perPage,
+      limit: isAll ? totalUsers : perPage,
       total: totalUsers,
-      totalPages: Math.ceil(totalUsers / perPage),
-      hasNextPage: currentPage * perPage < totalUsers,
-      hasPreviousPage: currentPage > 1,
+      totalPages: isAll ? 1 : Math.ceil(totalUsers / (perPage || 1)),
+      hasNextPage: isAll ? false : currentPage * perPage < totalUsers,
+      hasPreviousPage: isAll ? false : currentPage > 1,
     },
   });
 });
@@ -618,43 +623,78 @@ totalTeachers,
 
 
 const getRecentEnrollments = asyncHandler(async (req, res) => {
+  // 1. Fetch recent students registered in this academy
+  const recentUsers = await User.find({
+    academyId: req.academy._id,
+    role: "student",
+    isDeleted: false,
+  })
+    .sort({ createdAt: -1 })
+    .limit(10)
+    .select("fullName email status approvalStatus createdAt phone profileImage");
+
+  if (!recentUsers || recentUsers.length === 0) {
+    return res.status(200).json({
+      success: true,
+      count: 0,
+      enrollments: [],
+    });
+  }
+
+  // 2. Fetch active batches to map student batch & course assignments
   const batches = await Batch.find({
-  academyId: req.academy._id,
-    isDeleted:false
-})
-.populate("course", "title")
-.populate("students", "fullName email status approvalStatus createdAt")
-.sort({ createdAt: -1 });
+    academyId: req.academy._id,
+    isDeleted: false,
+  })
+    .populate("course", "title")
+    .select("name course students");
 
- const enrollmentMap = new Map();
-
-batches.forEach((batch) => {
-  batch.students.forEach((student) => {
-    if (!enrollmentMap.has(student._id.toString())) {
-      enrollmentMap.set(student._id.toString(), {
-        id: student._id,
-        name: student.fullName,
-        batch: batch.name,
-        course: batch.course?.title || "N/A",
-        status: student.approvalStatus,
-        enrolledAt: student.createdAt,
-      });
-    }
+  const studentBatchMap = new Map();
+  batches.forEach((batch) => {
+    (batch.students || []).forEach((stId) => {
+      const idStr = (stId._id || stId).toString();
+      if (!studentBatchMap.has(idStr)) {
+        studentBatchMap.set(idStr, {
+          batch: batch.name,
+          courseTitle: batch.course?.title || "N/A",
+        });
+      }
+    });
   });
-});
 
-const enrollments = Array.from(
-  enrollmentMap.values()
-);
+  // 3. Format enrollments with both modern object shape and backwards-compatible shape
+  const enrollments = recentUsers.map((student) => {
+    const batchInfo = studentBatchMap.get(student._id.toString());
+    const courseTitle = batchInfo?.courseTitle || "General Cohort";
+    const batchName = batchInfo?.batch || "Unassigned";
 
-  enrollments.sort(
-    (a, b) => new Date(b.enrolledAt) - new Date(a.enrolledAt)
-  );
+    return {
+      _id: student._id,
+      id: student._id,
+      name: student.fullName,
+      email: student.email,
+      batch: batchName,
+      course: {
+        title: courseTitle,
+      },
+      student: {
+        _id: student._id,
+        fullName: student.fullName,
+        email: student.email,
+        phone: student.phone,
+        status: student.status,
+        approvalStatus: student.approvalStatus,
+      },
+      status: student.approvalStatus || student.status || "active",
+      enrolledAt: student.createdAt,
+      createdAt: student.createdAt,
+    };
+  });
 
   return res.status(200).json({
     success: true,
     count: enrollments.length,
-    enrollments: enrollments.slice(0, 10), // latest 20
+    enrollments,
   });
 });
 const getallClasses = asyncHandler(async (req, res) => {
