@@ -1,5 +1,15 @@
-/* Importing the `mongoose` module. */
+/* Importing the `mongoose` and `dns` modules. */
 const mongoose = require("mongoose");
+const dns = require("dns");
+
+// Fallback to public DNS to prevent Windows/ISP querySrv ECONNREFUSED on MongoDB Atlas
+if (dns && typeof dns.setServers === "function") {
+  try {
+    dns.setServers(["8.8.8.8", "1.1.1.1"]);
+  } catch (dnsErr) {
+    // Ignore if not supported in custom environment
+  }
+}
 
 /**
  * It connects to the mongoose database.
