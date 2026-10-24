@@ -414,10 +414,13 @@ const getLoggedStudentStatics =
       notesCount,
       pdfsCount,
     ] = await Promise.all([
-      ClassLink.countDocuments({
-        batch: { $in: batchIds },
-          isDeleted:false,
-        academyId:req.academy._id,
+      Attendance.countDocuments({
+        $or: [
+          { "records.student": studentId },
+          { batch: { $in: batchIds } },
+        ],
+        isDeleted: false,
+        academyId: req.academy._id,
       }),
 
       Note.countDocuments({
@@ -448,6 +451,8 @@ const getLoggedStudentStatics =
 
 
 const getStudentAttendanceDashboard = asyncHandler(async (req, res) => {
+  const { batchId } = req.query;
+
   const studentDoc = await Student.findOne({
     $or: [{ user: req.user._id }, { _id: req.user._id }],
     academyId: req.academy._id,
@@ -460,22 +465,33 @@ const getStudentAttendanceDashboard = asyncHandler(async (req, res) => {
     studentDoc?.user,
   ].filter(Boolean);
 
-  const studentBatches = await Batches.find({
-    students: { $in: matchedIds },
+  let batchIds = [];
+  if (batchId && mongoose.Types.ObjectId.isValid(batchId)) {
+    batchIds = [new mongoose.Types.ObjectId(batchId)];
+  } else {
+    const studentBatches = await Batches.find({
+      students: { $in: matchedIds },
+      academyId: req.academy._id,
+      isDeleted: false,
+    }).select("_id name");
+    batchIds = studentBatches.map((b) => b._id);
+  }
+
+  const query = {
     academyId: req.academy._id,
     isDeleted: false,
-  }).select("_id name");
+  };
 
-  const batchIds = studentBatches.map((b) => b._id);
-
-  const attendance = await Attendance.find({
-    $or: [
+  if (batchId && mongoose.Types.ObjectId.isValid(batchId)) {
+    query.batch = new mongoose.Types.ObjectId(batchId);
+  } else {
+    query.$or = [
       { "records.student": { $in: matchedIds } },
       { batch: { $in: batchIds } },
-    ],
-    academyId: req.academy._id,
-    isDeleted: false,
-  })
+    ];
+  }
+
+  const attendance = await Attendance.find(query)
     .populate("batch", "name")
     .select("date records batch")
     .sort({ date: -1 });

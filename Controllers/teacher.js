@@ -12,6 +12,7 @@ const Announcement = require("../Modals/Announcement");
 
 const Course = require("../Modals/Courses");
 const Batch = require("../Modals/Batches");
+const Attendance = require("../Modals/Attendence");
 const mongoose = require("mongoose");
 const getTeacherDashboardStats = asyncHandler(async (req, res) => {
   const academyId = req.academy._id;
@@ -41,6 +42,8 @@ const getTeacherDashboardStats = asyncHandler(async (req, res) => {
     blockedStudents,
     totalCourses,
     activeBatches,
+    totalAttendanceSessions,
+    recentAttendanceSessions,
   ] = await Promise.all([
     User.countDocuments({
       _id: { $in: studentIds },
@@ -78,6 +81,21 @@ const getTeacherDashboardStats = asyncHandler(async (req, res) => {
       status: "active",
       isDeleted: false,
     }),
+
+    Attendance.countDocuments({
+      academyId,
+      batch: { $in: batchIds },
+      isDeleted: false,
+    }),
+
+    Attendance.find({
+      academyId,
+      batch: { $in: batchIds },
+      isDeleted: false,
+    })
+      .populate("batch", "name")
+      .sort({ date: -1 })
+      .limit(6),
   ]);
 
   res.status(200).json({
@@ -90,6 +108,8 @@ const getTeacherDashboardStats = asyncHandler(async (req, res) => {
       totalCourses,
       totalBatches: batchIds.length,
       activeBatches,
+      totalAttendanceSessions,
+      recentAttendanceSessions,
     },
   });
 });

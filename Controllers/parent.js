@@ -42,7 +42,7 @@ const getChildDashboard = asyncHandler(async (req, res) => {
     studentDoc?.user,
   ].filter(Boolean);
 
-  const [student, profile, batches, attendance] = await Promise.all([
+  const [student, profile, batches] = await Promise.all([
     User.findOne({
       $or: [{ _id: studentUserId }, { _id: studentDoc?.user }],
       academyId: req.academy._id,
@@ -55,19 +55,28 @@ const getChildDashboard = asyncHandler(async (req, res) => {
       students: { $in: matchedIds },
       isDeleted: false,
     }).populate('course', 'title name').populate('trainers', 'fullName'),
-    Attendance.find({
-      academyId: req.academy._id,
-      isDeleted: false,
-      'records.student': { $in: matchedIds },
-    }).populate('batch', 'name').sort({ date: -1 }).limit(30).select('batch date records'),
   ]);
   if (!student) return res.status(404).json({ success: false, message: 'Student record not found.' });
-  const records = attendance.map(a => ({
-    date: a.date,
-    batch: a.batch?._id || a.batch,
-    batchName: a.batch?.name || 'Classroom Session',
-    status: a.records.find(r => matchedIds.some(id => String(id) === String(r.student)))?.status || null
-  }));
+
+  const batchIds = batches.map((b) => b._id);
+  const attendance = await Attendance.find({
+    academyId: req.academy._id,
+    isDeleted: false,
+    $or: [
+      { 'records.student': { $in: matchedIds } },
+      { batch: { $in: batchIds } },
+    ],
+  }).populate('batch', 'name').sort({ date: -1 }).limit(30).select('batch date records');
+
+  const records = attendance.map(a => {
+    const rec = a.records.find(r => matchedIds.some(id => String(id) === String(r.student)));
+    return {
+      date: a.date,
+      batch: a.batch?._id || a.batch,
+      batchName: a.batch?.name || 'Classroom Session',
+      status: rec ? rec.status : 'absent'
+    };
+  });
   const marked = records.filter(r => ['present', 'absent', 'leave'].includes(r.status));
   const present = marked.filter(r => r.status === 'present').length;
   const leave = marked.filter(r => r.status === 'leave').length;
@@ -112,15 +121,32 @@ const getChildAttendance = asyncHandler(async (req, res) => {
   });
   const matchedIds = [studentUserId, studentDoc?._id, studentDoc?.user].filter(Boolean);
 
-  const query = { academyId: req.academy._id, isDeleted: false, 'records.student': { $in: matchedIds } };
+  const studentBatches = await Batch.find({
+    academyId: req.academy._id,
+    students: { $in: matchedIds },
+    isDeleted: false,
+  }).select('_id');
+  const batchIds = studentBatches.map((b) => b._id);
+
+  const query = {
+    academyId: req.academy._id,
+    isDeleted: false,
+    $or: [
+      { 'records.student': { $in: matchedIds } },
+      { batch: { $in: batchIds } },
+    ],
+  };
   if (from || to) query.date = { ...(from ? { $gte: new Date(from) } : {}), ...(to ? { $lte: new Date(to) } : {}) };
   const docs = await Attendance.find(query).populate('batch', 'name').sort({ date: -1 }).limit(180).select('batch date records');
-  const attendance = docs.map(d => ({
-    batch: d.batch?._id || d.batch,
-    batchName: d.batch?.name || 'Classroom Session',
-    date: d.date,
-    status: d.records.find(r => matchedIds.some(id => String(id) === String(r.student)))?.status || null
-  }));
+  const attendance = docs.map(d => {
+    const rec = d.records.find(r => matchedIds.some(id => String(id) === String(r.student)));
+    return {
+      batch: d.batch?._id || d.batch,
+      batchName: d.batch?.name || 'Classroom Session',
+      date: d.date,
+      status: rec ? rec.status : 'absent'
+    };
+  });
   const marked = attendance.filter(x => ['present', 'absent', 'leave'].includes(x.status));
   const present = marked.filter(x => x.status === 'present').length;
   const leave = marked.filter(x => x.status === 'leave').length;
