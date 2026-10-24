@@ -563,6 +563,7 @@ const login = asyncHandler(async (req, res) => {
     accessToken,
     user: {
       id: user._id,
+      _id: user._id,
       fullName: user.fullName,
       email: user.email,
       role: user.role,
@@ -698,6 +699,7 @@ const verify2FA = asyncHandler(async (req, res) => {
     accessToken,
     user: {
       id: user._id,
+      _id: user._id,
       fullName: user.fullName,
       email: user.email,
       role: user.role,
@@ -860,6 +862,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     accessToken: newAccessToken,
     user: {
       id: user._id,
+      _id: user._id,
       fullName: user.fullName,
       email: user.email,
       phone: user.phone,
