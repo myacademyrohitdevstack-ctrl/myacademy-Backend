@@ -24,6 +24,33 @@ app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
 
+app.get('/api/public-stats', async (req, res) => {
+  try {
+    const User = require("./Modals/User");
+    const Batch = require("./Modals/Batches");
+    const Course = require("./Modals/Courses");
+
+    const [students, teachers, batches, courses] = await Promise.all([
+      User.countDocuments({ role: "student", isDeleted: false }),
+      User.countDocuments({ role: "teacher", isDeleted: false }),
+      Batch.countDocuments({ isDeleted: false }),
+      Course.countDocuments({ isDeleted: false }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      stats: {
+        students,
+        teachers,
+        batches,
+        courses,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error fetching stats" });
+  }
+});
+
 /* Setting the limit of the data that can be sent to the server. */
 app.use(express.json({ limit: "50mb" }));
 
