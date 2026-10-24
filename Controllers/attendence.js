@@ -265,6 +265,9 @@ const getStudentAttendance = asyncHandler(async (req, res) => {
   const present = report.filter(
     (item) => item.status === "present"
   ).length;
+  const leave = report.filter(
+    (item) => item.status === "leave"
+  ).length;
   const absent = report.filter(
     (item) => item.status === "absent"
   ).length;
@@ -274,6 +277,7 @@ const getStudentAttendance = asyncHandler(async (req, res) => {
     summary: {
       totalClasses,
       present,
+      leave,
       absent,
       attendancePercentage:
         totalClasses === 0

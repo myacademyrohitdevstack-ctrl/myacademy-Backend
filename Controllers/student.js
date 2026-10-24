@@ -460,8 +460,19 @@ const getStudentAttendanceDashboard = asyncHandler(async (req, res) => {
     studentDoc?.user,
   ].filter(Boolean);
 
+  const studentBatches = await Batches.find({
+    students: { $in: matchedIds },
+    academyId: req.academy._id,
+    isDeleted: false,
+  }).select("_id name");
+
+  const batchIds = studentBatches.map((b) => b._id);
+
   const attendance = await Attendance.find({
-    "records.student": { $in: matchedIds },
+    $or: [
+      { "records.student": { $in: matchedIds } },
+      { batch: { $in: batchIds } },
+    ],
     academyId: req.academy._id,
     isDeleted: false,
   })
@@ -471,6 +482,7 @@ const getStudentAttendanceDashboard = asyncHandler(async (req, res) => {
 
   let present = 0;
   let absent = 0;
+  let leave = 0;
 
   const recentAttendance = [];
 
@@ -479,23 +491,33 @@ const getStudentAttendanceDashboard = asyncHandler(async (req, res) => {
       (r) => matchedIds.some((id) => String(id) === String(r.student))
     );
 
-    if (!record) return;
+    if (record) {
+      if (record.status === "present") {
+        present++;
+      } else if (record.status === "leave") {
+        leave++;
+      } else {
+        absent++;
+      }
 
-    if (record.status === "present") {
-      present++;
+      recentAttendance.push({
+        attendanceId: item._id,
+        batchName: item.batch?.name || "Classroom Session",
+        date: item.date,
+        status: record.status,
+      });
     } else {
       absent++;
+      recentAttendance.push({
+        attendanceId: item._id,
+        batchName: item.batch?.name || "Classroom Session",
+        date: item.date,
+        status: "absent",
+      });
     }
-
-    recentAttendance.push({
-      attendanceId: item._id,
-      batchName: item.batch?.name || "Classroom Session",
-      date: item.date,
-      status: record.status,
-    });
   });
 
-  const totalClasses = present + absent;
+  const totalClasses = present + absent + leave;
 
   const attendancePercentage =
     totalClasses === 0
@@ -527,9 +549,10 @@ const getStudentAttendanceDashboard = asyncHandler(async (req, res) => {
 
     stats: {
       attendancePercentage,
+      totalClasses,
       present,
       absent,
-      totalClasses,
+      leave,
     },
 
     progress: {

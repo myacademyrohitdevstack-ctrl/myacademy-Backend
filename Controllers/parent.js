@@ -68,22 +68,25 @@ const getChildDashboard = asyncHandler(async (req, res) => {
     batchName: a.batch?.name || 'Classroom Session',
     status: a.records.find(r => matchedIds.some(id => String(id) === String(r.student)))?.status || null
   }));
-  const marked = records.filter(r => r.status === 'present' || r.status === 'absent');
+  const marked = records.filter(r => ['present', 'absent', 'leave'].includes(r.status));
   const present = marked.filter(r => r.status === 'present').length;
-  const absent = marked.length - present;
+  const leave = marked.filter(r => r.status === 'leave').length;
+  const absent = marked.filter(r => r.status === 'absent').length;
   const attendancePercentage = marked.length ? Math.round((present / marked.length) * 100) : null;
 
   let currentStreak = 0;
   for (const item of records) {
     if (item.status === 'present') {
       currentStreak++;
-    } else if (item.status === 'absent') {
+    } else if (item.status === 'absent' || item.status === 'leave') {
       break;
     }
   }
 
   const attendanceSummary = {
+    totalClasses: marked.length,
     present,
+    leave,
     absent,
     total: marked.length,
     percentage: attendancePercentage,
@@ -118,9 +121,22 @@ const getChildAttendance = asyncHandler(async (req, res) => {
     date: d.date,
     status: d.records.find(r => matchedIds.some(id => String(id) === String(r.student)))?.status || null
   }));
-  const marked = attendance.filter(x => ['present', 'absent'].includes(x.status));
+  const marked = attendance.filter(x => ['present', 'absent', 'leave'].includes(x.status));
   const present = marked.filter(x => x.status === 'present').length;
-  res.json({ success: true, count: attendance.length, attendance, summary: { present, absent: marked.length - present, percentage: marked.length ? Math.round(present / marked.length * 100) : null } });
+  const leave = marked.filter(x => x.status === 'leave').length;
+  const absent = marked.filter(x => x.status === 'absent').length;
+  res.json({
+    success: true,
+    count: attendance.length,
+    attendance,
+    summary: {
+      totalClasses: marked.length,
+      present,
+      leave,
+      absent,
+      percentage: marked.length ? Math.round(present / marked.length * 100) : null
+    }
+  });
 });
 
 
