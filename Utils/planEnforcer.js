@@ -17,6 +17,108 @@ function normalizeFeatureKey(str) {
 }
 
 /**
+ * Common keyword / alias mappings between programmatic module keys and UI feature titles
+ */
+const FEATURE_KEYWORD_MAP = {
+  whatsapp_reminders: [
+    "whatsapp",
+    "whatsapp_reminders",
+    "whatsappreminders",
+    "whatsappalerts",
+    "automatedwhatsappalerts",
+    "whatsappgateway",
+  ],
+  fee_management: [
+    "fee",
+    "fees",
+    "feemanagement",
+    "feemanagementandinvoicing",
+    "feeledgers",
+    "feeledgersandofflinereceipts",
+    "invoicing",
+  ],
+  homework: [
+    "homework",
+    "assignment",
+    "assignments",
+    "homeworkandassignments",
+  ],
+  exam: [
+    "exam",
+    "exams",
+    "examination",
+    "exammanagement",
+    "exammanagementandresults",
+    "reportcards",
+  ],
+  exams: [
+    "exam",
+    "exams",
+    "examination",
+    "exammanagement",
+    "exammanagementandresults",
+    "reportcards",
+  ],
+  attendance: [
+    "attend",
+    "attendance",
+    "attendancetracking",
+    "attendancemanagement",
+  ],
+  batches: [
+    "batch",
+    "batches",
+    "batchandcoursemanagement",
+    "batchmanagement",
+  ],
+  courses: [
+    "course",
+    "courses",
+    "batchandcoursemanagement",
+    "coursemanagement",
+  ],
+  live_classes: [
+    "live",
+    "liveclasses",
+    "livevirtualclasses",
+    "zoom",
+    "meet",
+  ],
+  analytics: [
+    "analytic",
+    "analytics",
+    "report",
+    "reports",
+    "advancedanalyticsandreports",
+  ],
+  branding: [
+    "brand",
+    "branding",
+    "custombranding",
+    "customacademybranding",
+    "customacademybrandingandreceipts",
+  ],
+  audit_logs: [
+    "audit",
+    "auditlogs",
+    "security",
+    "auditlogsandsecurityhistory",
+  ],
+  parent_portal: [
+    "parent",
+    "parentportal",
+  ],
+  student_portal: [
+    "student",
+    "studentportal",
+  ],
+  teacher_portal: [
+    "teacher",
+    "teacherportal",
+  ],
+};
+
+/**
  * Checks if a feature is present in the plan's feature list.
  */
 function isFeatureAllowed(featuresList, requestedFeature) {
@@ -24,11 +126,39 @@ function isFeatureAllowed(featuresList, requestedFeature) {
     return true; // If no features are explicitly configured, grant default access
   }
 
+  // Wildcard allows everything
+  if (featuresList.some((f) => f === "*" || String(f).trim().toLowerCase() === "all")) {
+    return true;
+  }
+
+  const reqRaw = String(requestedFeature || "").trim().toLowerCase();
   const normalizedRequested = normalizeFeatureKey(requestedFeature);
 
+  // Check aliases/keywords for requested feature
+  const keywords = FEATURE_KEYWORD_MAP[reqRaw] || FEATURE_KEYWORD_MAP[normalizedRequested] || [normalizedRequested];
+
   return featuresList.some((f) => {
-    const norm = normalizeFeatureKey(f);
-    return norm === "*" || norm === normalizedRequested;
+    const rawF = String(f || "").trim().toLowerCase();
+    const normF = normalizeFeatureKey(f);
+
+    if (normF === "*" || normF === "all") return true;
+    if (normF === normalizedRequested) return true;
+
+    // Check against keyword list
+    for (const kw of keywords) {
+      if (normF === kw || normF.includes(kw) || rawF.includes(kw)) {
+        return true;
+      }
+    }
+
+    // Direct bidirectional substring check for compound phrases
+    if (normalizedRequested.includes("whatsapp") && normF.includes("whatsapp")) return true;
+    if (normalizedRequested.includes("fee") && normF.includes("fee")) return true;
+    if (normalizedRequested.includes("homework") && normF.includes("homework")) return true;
+    if (normalizedRequested.includes("exam") && normF.includes("exam")) return true;
+    if (normalizedRequested.includes("attend") && normF.includes("attend")) return true;
+
+    return false;
   });
 }
 
