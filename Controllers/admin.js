@@ -11,6 +11,8 @@ const Announcement = require("../Modals/Announcement");
 
 const Course = require("../Modals/Courses");
 const Batch = require("../Modals/Batches");
+const Academy = require("../Modals/Academy");
+const uploadToCloudinary = require("../Utils/Cloudinary");
 const mongoose = require("mongoose");
 const { assertResourceLimit, getUsageSummary } = require("../Utils/planEnforcer");
 
@@ -1431,8 +1433,117 @@ const getSubscriptionUsage = asyncHandler(async (req, res) => {
   });
 });
 
+const getAcademyProfile = asyncHandler(async (req, res) => {
+  if (!req.academy?._id) {
+    return res.status(400).json({
+      success: false,
+      message: "No academy context found in session.",
+    });
+  }
+
+  const academy = await Academy.findById(req.academy._id).populate("owner", "fullName email phone");
+
+  if (!academy) {
+    return res.status(404).json({
+      success: false,
+      message: "Academy not found.",
+    });
+  }
+
+  res.status(200).json({
+    success: true,
+    academy,
+  });
+});
+
+const updateAcademyProfile = asyncHandler(async (req, res) => {
+  if (!req.academy?._id) {
+    return res.status(400).json({
+      success: false,
+      message: "No academy context found in session.",
+    });
+  }
+
+  const academy = await Academy.findById(req.academy._id);
+
+  if (!academy) {
+    return res.status(404).json({
+      success: false,
+      message: "Academy not found.",
+    });
+  }
+
+  let logoUrl = req.body.logo;
+  if (req.file) {
+    const uploadRes = await uploadToCloudinary(req.file.buffer, "academy_logos");
+    logoUrl = uploadRes.secure_url;
+  }
+
+  const {
+    name,
+    phone,
+    supportPhone,
+    email,
+    tagline,
+    website,
+    isOnline,
+    deliveryMode,
+    address,
+    city,
+    state,
+    pincode,
+    country,
+    taxNumber,
+    currency,
+    receiptPrefix,
+    receiptNotes,
+    signatoryName,
+    signatoryTitle,
+    signature,
+  } = req.body;
+
+  if (name !== undefined && name !== null) academy.name = String(name).trim();
+  if (phone !== undefined && phone !== null) academy.phone = String(phone).trim();
+  if (supportPhone !== undefined && supportPhone !== null) academy.supportPhone = String(supportPhone).trim();
+  if (email !== undefined && email !== null) academy.email = String(email).trim().toLowerCase();
+  if (tagline !== undefined && tagline !== null) academy.tagline = String(tagline).trim();
+  if (website !== undefined && website !== null) academy.website = String(website).trim();
+  if (isOnline !== undefined && isOnline !== null) {
+    academy.isOnline = isOnline === true || isOnline === "true";
+  }
+  if (deliveryMode !== undefined && deliveryMode !== null) {
+    academy.deliveryMode = deliveryMode;
+    if (deliveryMode === "online") {
+      academy.isOnline = true;
+    }
+  }
+  if (address !== undefined && address !== null) academy.address = String(address).trim();
+  if (city !== undefined && city !== null) academy.city = String(city).trim();
+  if (state !== undefined && state !== null) academy.state = String(state).trim();
+  if (pincode !== undefined && pincode !== null) academy.pincode = String(pincode).trim();
+  if (country !== undefined && country !== null) academy.country = String(country).trim();
+  if (taxNumber !== undefined && taxNumber !== null) academy.taxNumber = String(taxNumber).trim();
+  if (currency !== undefined && currency !== null) academy.currency = String(currency).trim();
+  if (receiptPrefix !== undefined && receiptPrefix !== null) academy.receiptPrefix = String(receiptPrefix).trim();
+  if (receiptNotes !== undefined && receiptNotes !== null) academy.receiptNotes = String(receiptNotes).trim();
+  if (signatoryName !== undefined && signatoryName !== null) academy.signatoryName = String(signatoryName).trim();
+  if (signatoryTitle !== undefined && signatoryTitle !== null) academy.signatoryTitle = String(signatoryTitle).trim();
+  if (logoUrl !== undefined && logoUrl !== null) academy.logo = logoUrl;
+  if (signature !== undefined && signature !== null) academy.signature = signature;
+
+  await academy.save();
+
+  res.status(200).json({
+    success: true,
+    message: "Academy details saved successfully.",
+    academy,
+  });
+});
+
 module.exports = {
   getSubscriptionUsage,
+  getAcademyProfile,
+  updateAcademyProfile,
   getUsers,
   approveUser,
   getallClasses,

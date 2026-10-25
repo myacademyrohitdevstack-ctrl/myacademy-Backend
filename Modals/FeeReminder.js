@@ -35,7 +35,8 @@ const feeReminderSchema = new mongoose.Schema(
     },
     recipient: {
       name: { type: String, required: true },
-      phone: { type: String, required: true },
+      phone: { type: String, default: "" },
+      email: { type: String, default: "" },
       role: { type: String, enum: ["student", "parent"], default: "student" },
     },
     amountDue: {
@@ -49,7 +50,7 @@ const feeReminderSchema = new mongoose.Schema(
     },
     channel: {
       type: String,
-      enum: ["whatsapp_click_to_chat", "whatsapp_cloud_api", "whatsapp_platform_gateway"],
+      enum: ["whatsapp_click_to_chat", "whatsapp_cloud_api", "whatsapp_platform_gateway", "resend_email", "email"],
       default: "whatsapp_click_to_chat",
     },
     reminderType: {

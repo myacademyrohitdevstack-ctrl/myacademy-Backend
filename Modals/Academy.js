@@ -28,6 +28,110 @@ const academySchema = new mongoose.Schema(
       default: "",
     },
 
+    supportPhone: {
+      type: String,
+      default: "",
+    },
+
+    logo: {
+      type: String,
+      default: "",
+    },
+
+    tagline: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    website: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    isOnline: {
+      type: Boolean,
+      default: false,
+    },
+
+    deliveryMode: {
+      type: String,
+      enum: ["online", "offline", "hybrid"],
+      default: "offline",
+    },
+
+    address: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    city: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    state: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    pincode: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    country: {
+      type: String,
+      default: "India",
+      trim: true,
+    },
+
+    taxNumber: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    currency: {
+      type: String,
+      default: "₹",
+      trim: true,
+    },
+
+    receiptPrefix: {
+      type: String,
+      default: "REC",
+      trim: true,
+    },
+
+    receiptNotes: {
+      type: String,
+      default: "Thank you for your payment. This is an official computer-generated receipt.",
+      trim: true,
+    },
+
+    signatoryName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    signatoryTitle: {
+      type: String,
+      default: "Authorized Signatory",
+      trim: true,
+    },
+
+    signature: {
+      type: String,
+      default: "",
+    },
+
     owner: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

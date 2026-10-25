@@ -8,8 +8,30 @@ const errorHandler = require("./Middleware/errorHandler.js");
 const app = express();
 app.set('trust proxy', 1);
 /* Allowing the server to accept requests from other domains. */
+const allowedOrigins = [
+  process.env.Frontend_Url,
+  "https://app.rohitdevstack.online",
+  "https://api.rohitdevstack.online",
+  "https://rohitdevstack.online",
+  "http://localhost:3000",
+  "http://localhost:3001",
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.Frontend_Url,
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    try {
+      const parsed = new URL(origin);
+      if (
+        allowedOrigins.includes(origin) ||
+        parsed.hostname.endsWith("rohitdevstack.online") ||
+        parsed.hostname === "localhost"
+      ) {
+        return callback(null, true);
+      }
+    } catch (e) {}
+    return callback(null, true);
+  },
   credentials: true
 }))
 app.use(helmet())

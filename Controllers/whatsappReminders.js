@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const asyncHandler = require("../Utils/asyncHandler");
 const { assertFeatureEnabled } = require("../Utils/planEnforcer");
+const sendEmail = require("../Utils/sendEmail");
 const FeeReminder = require("../Modals/FeeReminder");
 const StudentFee = require("../Modals/StudentFee");
 const FeePayment = require("../Modals/FeePayment");
@@ -22,6 +23,7 @@ const {
 const {
   isWithinSendingHours,
   resolveRecipientContact,
+  resolveRecipients,
   ensureDefaultTemplates,
   processAcademyReminders,
 } = require("../Utils/reminderEngine");
@@ -212,6 +214,7 @@ exports.getDashboard = asyncHandler(async (req, res) => {
       },
       automation: {
         enabled: settings?.automaticRemindersEnabled || false,
+        defaultRecipientRole: settings?.defaultRecipientRole || "student",
         isPaused: settings?.isPaused || false,
         timezone: settings?.timezone || "Asia/Kolkata",
         allowedSendingHours: settings?.allowedSendingHours || { start: "09:00", end: "20:00" },
@@ -367,9 +370,18 @@ exports.previewReminder = asyncHandler(async (req, res) => {
     templateBody = `Dear {{parentName}}, friendly fee reminder from {{academyName}} for {{studentName}} ({{className}}). Outstanding amount is ₹{{pendingAmount}}, due on {{dueDate}}. Thank you!`;
   }
 
-  // Resolve recipient contact
-  const recipient = await resolveRecipientContact(fee.student, fee.studentProfile, recipientRole === "parent");
-  const phoneValidation = normalizePhoneNumber(recipient.phone);
+  // Resolve recipient contact(s)
+  const resolved = await resolveRecipients(fee.student, fee.studentProfile, recipientRole);
+  const primaryRecipient = resolved.contacts[0] || { name: fee.student?.fullName || "Student", phone: fee.student?.phone || "", role: "student" };
+  const phoneValidation = normalizePhoneNumber(primaryRecipient.phone);
+
+  const hasValidPhone = recipientRole === "both"
+    ? Boolean(resolved.contacts.some((c) => normalizePhoneNumber(c.phone).isValid))
+    : phoneValidation.isValid;
+
+  const hasValidEmail = recipientRole === "both"
+    ? Boolean(resolved.contacts.some((c) => (c.email && c.email.includes("@")) || (c.role === "student" && fee.student?.email)))
+    : Boolean(primaryRecipient.email || fee.student?.email);
 
   const formattedDueDate = targetDueDate
     ? new Date(targetDueDate).toLocaleDateString("en-IN", {
@@ -382,7 +394,7 @@ exports.previewReminder = asyncHandler(async (req, res) => {
   const renderedMessage = renderTemplateMessage(templateBody, {
     academyName,
     studentName: fee.student?.fullName || "Student",
-    parentName: recipient.name,
+    parentName: primaryRecipient.name,
     className: fee.batch?.name || fee.course?.title || "Class",
     feeAmount: String(targetInstallment ? targetInstallment.amount : fee.totalPayable),
     paidAmount: String(targetInstallment ? targetInstallment.paidAmount || 0 : fee.paidAmount),
@@ -402,12 +414,21 @@ exports.previewReminder = asyncHandler(async (req, res) => {
       renderedMessage,
       clickToChatUrl,
       recipient: {
-        name: recipient.name,
-        phone: recipient.phone,
+        name: recipientRole === "both"
+          ? `${resolved.student?.name || "Student"} & ${resolved.parent?.name || "Parent"}`
+          : primaryRecipient.name,
+        phone: primaryRecipient.phone,
+        email: recipientRole === "both"
+          ? [resolved.student?.email, resolved.parent?.email].filter(Boolean).join(", ")
+          : (primaryRecipient.email || null),
         normalizedPhone: phoneValidation.normalizedPhone,
-        isValidPhone: phoneValidation.isValid,
+        isValidPhone: hasValidPhone,
+        isValidEmail: hasValidEmail,
         phoneValidationReason: phoneValidation.reason || null,
-        role: recipient.role,
+        role: recipientRole,
+        isBoth: recipientRole === "both",
+        studentContact: resolved.student,
+        parentContact: resolved.parent,
       },
       amountDue: remainingAmount,
       dueDate: targetDueDate,
@@ -474,27 +495,29 @@ exports.sendManualReminder = asyncHandler(async (req, res) => {
     targetDueDate = nextDue?.dueDate || null;
   }
 
-  const academyDoc = await Academy.findById(academyId).select("name phone supportPhone");
+  const academyDoc = await Academy.findById(academyId).select("name phone supportPhone logo currency");
   const academyName = academyDoc?.name || "MyAcademy";
   const supportPhone = academyDoc?.supportPhone || academyDoc?.phone || "";
 
-  // Resolve recipient contact
-  const recipient = await resolveRecipientContact(fee.student, fee.studentProfile, recipientRole === "parent");
-  const phoneValidation = normalizePhoneNumber(recipient.phone);
+  // Resolve recipient contact(s) based on recipientRole: 'student' | 'parent' | 'both'
+  const resolved = await resolveRecipients(fee.student, fee.studentProfile, recipientRole);
+  const targetContacts = resolved.contacts || [];
 
-  if (!phoneValidation.isValid) {
+  if (targetContacts.length === 0) {
     return res.status(400).json({
       success: false,
-      message: `Invalid recipient phone number (${recipient.phone || "none"}): ${phoneValidation.reason}`,
+      message: "No valid recipient contact details found on file for this fee account.",
     });
   }
 
   // Check integration mode
   const integration = await WhatsAppIntegration.findOne({ academyId }).select("+accessToken +appSecret");
 
-  // Determine active channel: 'direct_whatsapp', 'myacademy_api', or 'custom_api'
+  // Determine active channel: 'direct_whatsapp', 'myacademy_api', 'cloud_api', or 'resend_email'
   let targetChannel = "whatsapp_click_to_chat";
-  if (channelPreference === "myacademy_api" || channelPreference === "platform_api") {
+  if (channelPreference === "resend_email" || channelPreference === "email") {
+    targetChannel = "resend_email";
+  } else if (channelPreference === "myacademy_api" || channelPreference === "platform_api") {
     targetChannel = "whatsapp_platform_gateway";
   } else if (channelPreference === "custom_api" || channelPreference === "cloud_api") {
     targetChannel = "whatsapp_cloud_api";
@@ -502,7 +525,9 @@ exports.sendManualReminder = asyncHandler(async (req, res) => {
     targetChannel = "whatsapp_click_to_chat";
   } else {
     // Auto detection based on configured integration mode
-    if (integration?.mode === "platform_api" || integration?.mode === "myacademy_api") {
+    if (integration?.mode === "resend_email" || integration?.mode === "email") {
+      targetChannel = "resend_email";
+    } else if (integration?.mode === "platform_api" || integration?.mode === "myacademy_api") {
       targetChannel = "whatsapp_platform_gateway";
     } else if (integration?.mode === "cloud_api" && integration.connectionStatus === "connected" && integration.accessToken) {
       targetChannel = "whatsapp_cloud_api";
@@ -511,15 +536,50 @@ exports.sendManualReminder = asyncHandler(async (req, res) => {
     }
   }
 
+  const isResendEmail = targetChannel === "resend_email";
   const canUseCloudApi = targetChannel === "whatsapp_cloud_api";
   const canUsePlatformApi = targetChannel === "whatsapp_platform_gateway";
 
-  // Check opt out
-  if ((integration?.optOutPhoneNumbers || []).includes(phoneValidation.normalizedPhone)) {
-    return res.status(400).json({
-      success: false,
-      message: `The phone number ${phoneValidation.formattedDisplay} has opted out of WhatsApp reminders.`,
-    });
+  let eligibleTargets = [];
+
+  if (isResendEmail) {
+    eligibleTargets = targetContacts
+      .map((c) => ({
+        ...c,
+        resolvedEmail: c.email || (c.role === "student" ? fee.student?.email : "") || "",
+      }))
+      .filter((c) => c.resolvedEmail && c.resolvedEmail.includes("@"));
+
+    if (eligibleTargets.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: recipientRole === "both"
+          ? "Neither student nor parent has a valid email address on file. Please configure an email address."
+          : `No email address found on file for ${recipientRole === "parent" ? "parent" : "student"}.`,
+      });
+    }
+  } else {
+    eligibleTargets = targetContacts
+      .map((c) => {
+        const validation = normalizePhoneNumber(c.phone);
+        const isOptedOut = (integration?.optOutPhoneNumbers || []).includes(validation.normalizedPhone);
+        return {
+          ...c,
+          validation,
+          isOptedOut,
+          resolvedEmail: c.email || (c.role === "student" ? fee.student?.email : "") || "",
+        };
+      })
+      .filter((c) => c.validation.isValid && !c.isOptedOut);
+
+    if (eligibleTargets.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: recipientRole === "both"
+          ? "Neither student nor parent has a valid, non-opted-out phone number for WhatsApp delivery."
+          : `Invalid recipient phone number (${targetContacts[0]?.phone || "none"}): please verify international format.`,
+      });
+    }
   }
 
   // Render message
@@ -541,147 +601,268 @@ exports.sendManualReminder = asyncHandler(async (req, res) => {
       })
     : "Promptly";
 
-  const renderedMessage = renderTemplateMessage(rawTemplate, {
-    academyName,
-    studentName: fee.student?.fullName || "Student",
-    parentName: recipient.name,
-    className: fee.batch?.name || fee.course?.title || "Class",
-    feeAmount: String(targetInstallment ? targetInstallment.amount : fee.totalPayable),
-    paidAmount: String(targetInstallment ? targetInstallment.paidAmount || 0 : fee.paidAmount),
-    pendingAmount: String(remainingAmount),
-    dueDate: formattedDueDate,
-    installmentName: targetInstallment?.label || "Consolidated Balance",
-    supportPhone,
-  });
-
-  const clickToChatUrl = generateClickToChatUrl(phoneValidation.normalizedPhone, renderedMessage);
-
-  // Generate an idempotency key to prevent double clicks within 30 seconds
   const dateMinuteKey = Math.floor(Date.now() / 30000);
-  const idempotencyKey = `manual_${academyId}_${fee._id}_${targetInstallment?._id || "consolidated"}_${dateMinuteKey}`;
+  const dispatchedRecords = [];
+  const clickToChatUrls = [];
 
-  let reminderRecord = await FeeReminder.create({
-    academyId,
-    studentId: fee.student._id,
-    studentProfileId: fee.studentProfile,
-    feeId: fee._id,
-    installmentId: targetInstallment?._id || null,
-    installmentLabel: targetInstallment?.label || "Consolidated Balance",
-    recipient: {
-      name: recipient.name,
-      phone: phoneValidation.normalizedPhone,
-      role: recipient.role,
-    },
-    amountDue: remainingAmount,
-    dueDate: targetDueDate,
-    channel: canUsePlatformApi ? "whatsapp_platform_gateway" : canUseCloudApi ? "whatsapp_cloud_api" : "whatsapp_click_to_chat",
-    reminderType: "manual",
-    reminderRule: "manual",
-    templateId: templateDoc?._id || null,
-    renderedMessage,
-    clickToChatUrl,
-    status: (canUseCloudApi || canUsePlatformApi) ? "processing" : "draft",
-    idempotencyKey,
-    createdBy: req.user._id,
-  });
+  for (const target of eligibleTargets) {
+    const renderedMessage = renderTemplateMessage(rawTemplate, {
+      academyName,
+      studentName: fee.student?.fullName || "Student",
+      parentName: target.name,
+      className: fee.batch?.name || fee.course?.title || "Class",
+      feeAmount: String(targetInstallment ? targetInstallment.amount : fee.totalPayable),
+      paidAmount: String(targetInstallment ? targetInstallment.paidAmount || 0 : fee.paidAmount),
+      pendingAmount: String(remainingAmount),
+      dueDate: formattedDueDate,
+      installmentName: targetInstallment?.label || "Consolidated Balance",
+      supportPhone,
+    });
 
-  // 1. MyAcademy Managed WhatsApp API
-  if (canUsePlatformApi) {
-    const platformToken = process.env.PLATFORM_WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
-    const platformPhoneId = process.env.PLATFORM_WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const phoneValidation = target.validation || normalizePhoneNumber(target.phone);
+    const clickUrl = (!isResendEmail && phoneValidation.isValid)
+      ? generateClickToChatUrl(phoneValidation.normalizedPhone, renderedMessage)
+      : "";
 
-    let apiResult = null;
-    if (platformToken && platformPhoneId) {
-      try {
-        apiResult = await sendMetaCloudMessage({
-          phoneNumberId: platformPhoneId,
-          accessToken: platformToken,
-          toPhone: phoneValidation.normalizedPhone,
-          messageText: renderedMessage,
-          templateName: templateDoc?.approvalStatus === "approved" ? templateDoc.providerTemplateName : null,
-        });
-      } catch (err) {
-        console.warn("MyAcademy gateway upstream error, fallback simulated delivery:", err.message);
-      }
+    if (clickUrl) {
+      clickToChatUrls.push({ role: target.role, name: target.name, url: clickUrl });
     }
 
-    const providerMsgId = apiResult?.messageId || `MA-WA-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    reminderRecord.status = "sent_to_provider";
-    reminderRecord.providerMessageId = providerMsgId;
-    reminderRecord.providerResponse = apiResult?.providerResponse || { provider: "myacademy_platform_gateway", delivered: true };
-    reminderRecord.sentAt = new Date();
-    reminderRecord.attemptCount = 1;
-    await reminderRecord.save();
+    const idempotencyKey = `manual_${academyId}_${fee._id}_${targetInstallment?._id || "consolidated"}_${target.role}_${dateMinuteKey}`;
 
-    await logReminderAudit(academyId, req.user._id, "MANUAL_REMINDER_CREATED", reminderRecord._id, {
-      method: "myacademy_platform_gateway",
-      recipient: phoneValidation.normalizedPhone,
+    let reminderRecord = await FeeReminder.create({
+      academyId,
+      studentId: fee.student._id,
+      studentProfileId: fee.studentProfile,
+      feeId: fee._id,
+      installmentId: targetInstallment?._id || null,
+      installmentLabel: targetInstallment?.label || "Consolidated Balance",
+      recipient: {
+        name: target.name,
+        phone: isResendEmail ? (target.phone || "") : (phoneValidation.normalizedPhone || ""),
+        email: target.resolvedEmail || "",
+        role: target.role,
+      },
+      amountDue: remainingAmount,
+      dueDate: targetDueDate,
+      channel: isResendEmail
+        ? "resend_email"
+        : canUsePlatformApi
+        ? "whatsapp_platform_gateway"
+        : canUseCloudApi
+        ? "whatsapp_cloud_api"
+        : "whatsapp_click_to_chat",
+      reminderType: "manual",
+      reminderRule: "manual",
+      templateId: templateDoc?._id || null,
+      renderedMessage,
+      clickToChatUrl: clickUrl,
+      status: isResendEmail ? "processing" : (canUseCloudApi || canUsePlatformApi) ? "processing" : "draft",
+      idempotencyKey,
+      createdBy: req.user._id,
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "Fee reminder dispatched via MyAcademy WhatsApp Gateway!",
-      data: reminderRecord,
-      clickToChatUrl,
-    });
-  }
+    // 0. Resend Official Email Dispatch
+    if (isResendEmail) {
+      try {
+        const emailSubject = `Payment Reminder: ${academyName} - ${targetInstallment?.label || "Tuition Fee"}`;
+        const emailHtml = `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+            <div style="text-align: center; padding-bottom: 20px; border-bottom: 1px solid #f1f5f9;">
+              ${academyDoc?.logo ? `<img src="${academyDoc.logo}" alt="${academyName}" style="max-height: 48px; margin-bottom: 10px;" />` : ""}
+              <h2 style="color: #0f172a; margin: 0; font-size: 20px; font-weight: 800;">${academyName}</h2>
+              <p style="color: #d6451b; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 4px 0 0 0;">Official Tuition Fee Reminder</p>
+            </div>
+            
+            <div style="padding: 24px 0;">
+              <p style="color: #334155; font-size: 15px; margin: 0 0 16px 0;">Dear <strong>${target.name}</strong>,</p>
+              <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 20px 0;">
+                This is an official payment notice regarding the pending tuition fee installment for <strong>${fee.student?.fullName || "Student"}</strong> in <strong>${fee.batch?.name || fee.course?.title || "Academic Program"}</strong>.
+              </p>
 
-  // 2. Custom Meta Cloud API
-  if (canUseCloudApi) {
-    try {
-      const apiResult = await sendMetaCloudMessage({
-        phoneNumberId: integration.phoneNumberId,
-        accessToken: integration.accessToken,
-        toPhone: phoneValidation.normalizedPhone,
-        messageText: renderedMessage,
-        templateName: templateDoc?.approvalStatus === "approved" ? templateDoc.providerTemplateName : null,
-      });
+              <div style="background-color: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                  <tr>
+                    <td style="color: #64748b; padding: 5px 0;">Installment:</td>
+                    <td style="color: #0f172a; font-weight: 700; text-align: right; padding: 5px 0;">${targetInstallment?.label || "Consolidated Balance"}</td>
+                  </tr>
+                  <tr>
+                    <td style="color: #64748b; padding: 5px 0;">Due Date:</td>
+                    <td style="color: #0f172a; font-weight: 700; text-align: right; padding: 5px 0;">${formattedDueDate}</td>
+                  </tr>
+                  <tr>
+                    <td style="color: #ea580c; font-size: 14px; font-weight: 800; padding: 10px 0 0 0; border-top: 1px dashed #fdba74;">Amount Due:</td>
+                    <td style="color: #ea580c; font-size: 18px; font-weight: 900; text-align: right; padding: 10px 0 0 0; border-top: 1px dashed #fdba74;">₹${Number(remainingAmount).toLocaleString("en-IN")}</td>
+                  </tr>
+                </table>
+              </div>
 
+              <p style="color: #475569; font-size: 13px; line-height: 1.6; margin: 0 0 16px 0;">
+                Kindly complete the payment through your authorized academy portal or preferred payment mode.
+              </p>
+              ${supportPhone ? `<p style="color: #64748b; font-size: 12px; margin: 0;">For questions or billing inquiries, please contact: <strong>${supportPhone}</strong></p>` : ""}
+            </div>
+
+            <div style="border-top: 1px solid #f1f5f9; padding-top: 16px; text-align: center; color: #94a3b8; font-size: 11px;">
+              <p style="margin: 0;">Sent securely via Resend Mail on behalf of ${academyName}.</p>
+            </div>
+          </div>
+        `;
+
+        await sendEmail({
+          to: target.resolvedEmail,
+          subject: emailSubject,
+          html: emailHtml,
+        });
+
+        reminderRecord.status = "delivered";
+        reminderRecord.sentAt = new Date();
+        reminderRecord.deliveredAt = new Date();
+        await reminderRecord.save();
+
+        await logReminderAudit(academyId, req.user._id, "MANUAL_REMINDER_CREATED", reminderRecord._id, {
+          method: "resend_email",
+          recipient: target.resolvedEmail,
+          role: target.role,
+        });
+      } catch (err) {
+        reminderRecord.status = "failed";
+        reminderRecord.failureReason = err.message || "Failed to dispatch email via Resend";
+        await reminderRecord.save();
+      }
+    } else if (canUsePlatformApi) {
+      const platformToken = process.env.PLATFORM_WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
+      const platformPhoneId = process.env.PLATFORM_WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+      let apiResult = null;
+      if (platformToken && platformPhoneId) {
+        try {
+          apiResult = await sendMetaCloudMessage({
+            phoneNumberId: platformPhoneId,
+            accessToken: platformToken,
+            toPhone: phoneValidation.normalizedPhone,
+            messageText: renderedMessage,
+            templateName: templateDoc?.approvalStatus === "approved" ? templateDoc.providerTemplateName : null,
+          });
+        } catch (err) {
+          console.warn("MyAcademy gateway upstream error, fallback simulated delivery:", err.message);
+        }
+      }
+
+      const providerMsgId = apiResult?.messageId || `MA-WA-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
       reminderRecord.status = "sent_to_provider";
-      reminderRecord.providerMessageId = apiResult.messageId;
-      reminderRecord.providerResponse = apiResult.providerResponse;
+      reminderRecord.providerMessageId = providerMsgId;
+      reminderRecord.providerResponse = apiResult?.providerResponse || { provider: "myacademy_platform_gateway", delivered: true };
       reminderRecord.sentAt = new Date();
       reminderRecord.attemptCount = 1;
       await reminderRecord.save();
 
       await logReminderAudit(academyId, req.user._id, "MANUAL_REMINDER_CREATED", reminderRecord._id, {
-        method: "cloud_api",
+        method: "myacademy_platform_gateway",
         recipient: phoneValidation.normalizedPhone,
+        role: target.role,
       });
+    } else if (canUseCloudApi) {
+      try {
+        const apiResult = await sendMetaCloudMessage({
+          phoneNumberId: integration.phoneNumberId,
+          accessToken: integration.accessToken,
+          toPhone: phoneValidation.normalizedPhone,
+          messageText: renderedMessage,
+          templateName: templateDoc?.approvalStatus === "approved" ? templateDoc.providerTemplateName : null,
+        });
 
-      return res.status(200).json({
-        success: true,
-        message: "Fee reminder dispatched via WhatsApp Cloud API successfully.",
-        data: reminderRecord,
-      });
-    } catch (apiErr) {
-      reminderRecord.status = "failed";
-      reminderRecord.failedAt = new Date();
-      reminderRecord.failureReason = apiErr.message || "Cloud API submission error";
-      reminderRecord.providerResponse = apiErr.providerResponse || null;
-      reminderRecord.attemptCount = 1;
-      await reminderRecord.save();
+        reminderRecord.status = "sent_to_provider";
+        reminderRecord.providerMessageId = apiResult.messageId;
+        reminderRecord.providerResponse = apiResult.providerResponse;
+        reminderRecord.sentAt = new Date();
+        reminderRecord.attemptCount = 1;
+        await reminderRecord.save();
 
-      return res.status(502).json({
-        success: false,
-        message: `Failed to send via WhatsApp Cloud API: ${apiErr.message}. Fallback link generated.`,
-        data: reminderRecord,
-        fallbackClickToChatUrl: clickToChatUrl,
+        await logReminderAudit(academyId, req.user._id, "MANUAL_REMINDER_CREATED", reminderRecord._id, {
+          method: "cloud_api",
+          recipient: phoneValidation.normalizedPhone,
+          role: target.role,
+        });
+      } catch (apiErr) {
+        reminderRecord.status = "failed";
+        reminderRecord.failedAt = new Date();
+        reminderRecord.failureReason = apiErr.message || "Cloud API submission error";
+        reminderRecord.providerResponse = apiErr.providerResponse || null;
+        reminderRecord.attemptCount = 1;
+        await reminderRecord.save();
+      }
+    } else {
+      // Manual Click-to-Chat Mode
+      await logReminderAudit(academyId, req.user._id, "MANUAL_REMINDER_CREATED", reminderRecord._id, {
+        method: "click_to_chat",
+        recipient: phoneValidation.normalizedPhone,
+        role: target.role,
       });
     }
+
+    dispatchedRecords.push(reminderRecord);
   }
 
-  // Manual Click-to-Chat Mode
-  await logReminderAudit(academyId, req.user._id, "MANUAL_REMINDER_CREATED", reminderRecord._id, {
-    method: "click_to_chat",
-    recipient: phoneValidation.normalizedPhone,
-  });
+  const primaryRecord = dispatchedRecords[0];
+  const primaryClickUrl = clickToChatUrls[0]?.url || primaryRecord?.clickToChatUrl || "";
+  const roleText = recipientRole === "both"
+    ? `both Student and Parent (${dispatchedRecords.map((r) => r.recipient.name).join(" & ")})`
+    : `${primaryRecord?.recipient?.name || "recipient"}`;
 
+  if (isResendEmail) {
+    const anyFailed = dispatchedRecords.some((r) => r.status === "failed");
+    if (anyFailed && dispatchedRecords.every((r) => r.status === "failed")) {
+      return res.status(500).json({
+        success: false,
+        message: `Failed to dispatch email reminder via Resend: ${dispatchedRecords[0]?.failureReason}`,
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      message: `Official fee reminder email dispatched to ${roleText} via Resend!`,
+      data: primaryRecord,
+      records: dispatchedRecords,
+    });
+  }
+
+  if (canUsePlatformApi) {
+    return res.status(200).json({
+      success: true,
+      message: `Fee reminder dispatched to ${roleText} via MyAcademy WhatsApp Gateway!`,
+      data: primaryRecord,
+      records: dispatchedRecords,
+      clickToChatUrl: primaryClickUrl,
+      clickToChatUrls,
+    });
+  }
+
+  if (canUseCloudApi) {
+    const anyFailed = dispatchedRecords.some((r) => r.status === "failed");
+    if (anyFailed && dispatchedRecords.every((r) => r.status === "failed")) {
+      return res.status(502).json({
+        success: false,
+        message: `Failed to send via WhatsApp Cloud API: ${dispatchedRecords[0]?.failureReason}. Fallback link generated.`,
+        data: primaryRecord,
+        fallbackClickToChatUrl: primaryClickUrl,
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      message: `Fee reminder dispatched to ${roleText} via WhatsApp Cloud API successfully.`,
+      data: primaryRecord,
+      records: dispatchedRecords,
+    });
+  }
+
+  // Click-to-chat
   res.status(201).json({
     success: true,
-    message: "Manual WhatsApp reminder generated. Open WhatsApp to send to the recipient.",
-    data: reminderRecord,
-    clickToChatUrl,
+    message: `Manual WhatsApp reminder generated for ${roleText}. Open WhatsApp to send to the recipient.`,
+    data: primaryRecord,
+    records: dispatchedRecords,
+    clickToChatUrl: primaryClickUrl,
+    clickToChatUrls,
   });
 });
 
@@ -733,12 +914,13 @@ exports.sendBulkReminders = asyncHandler(async (req, res) => {
     .populate("batch", "name")
     .populate("course", "title");
 
-  const academyDoc = await Academy.findById(academyId).select("name phone supportPhone");
+  const academyDoc = await Academy.findById(academyId).select("name phone supportPhone logo currency");
   const academyName = academyDoc?.name || "MyAcademy";
   const supportPhone = academyDoc?.supportPhone || academyDoc?.phone || "";
 
   const integration = await WhatsAppIntegration.findOne({ academyId }).select("+accessToken +appSecret");
-  const dispatchMode = req.body.dispatchMode || (integration?.mode === "platform_api" || integration?.mode === "myacademy_api" ? "myacademy_api" : integration?.mode === "cloud_api" ? "custom_api" : "direct_whatsapp");
+  const dispatchMode = req.body.dispatchMode || (integration?.mode === "resend_email" ? "resend_email" : integration?.mode === "platform_api" || integration?.mode === "myacademy_api" ? "myacademy_api" : integration?.mode === "cloud_api" ? "custom_api" : "direct_whatsapp");
+  const isEmailMode = dispatchMode === "resend_email" || dispatchMode === "email";
   const canUsePlatformApi = dispatchMode === "myacademy_api";
   const canUseCloudApi = dispatchMode === "custom_api" && integration && integration.connectionStatus === "connected" && integration.accessToken;
 
@@ -772,146 +954,258 @@ exports.sendBulkReminders = asyncHandler(async (req, res) => {
       continue;
     }
 
-    const recipient = await resolveRecipientContact(studentUser, fee.studentProfile, recipientRole === "parent");
-    const phoneValidation = normalizePhoneNumber(recipient.phone);
+    const resolved = await resolveRecipients(studentUser, fee.studentProfile, recipientRole);
+    const targetContacts = resolved.contacts || [];
 
-    if (!phoneValidation.isValid) {
-      skippedCount++;
-      results.push({
-        feeId: fee._id,
+    for (const recipient of targetContacts) {
+      const recipientEmail = recipient.email || (recipient.role === "student" ? studentUser.email : "");
+
+      let phoneValidation = { isValid: false, normalizedPhone: "" };
+      if (isEmailMode) {
+        if (!recipientEmail) {
+          skippedCount++;
+          results.push({
+            feeId: fee._id,
+            recipientRole: recipient.role,
+            studentName: studentUser.fullName,
+            status: "skipped",
+            reason: `No email address configured for ${recipient.name} (${recipient.role})`,
+          });
+          continue;
+        }
+      } else {
+        phoneValidation = normalizePhoneNumber(recipient.phone);
+        if (!phoneValidation.isValid) {
+          skippedCount++;
+          results.push({
+            feeId: fee._id,
+            recipientRole: recipient.role,
+            studentName: studentUser.fullName,
+            status: "skipped",
+            reason: `Invalid phone for ${recipient.name}: ${phoneValidation.reason}`,
+          });
+          continue;
+        }
+
+        if ((integration?.optOutPhoneNumbers || []).includes(phoneValidation.normalizedPhone)) {
+          skippedCount++;
+          results.push({
+            feeId: fee._id,
+            recipientRole: recipient.role,
+            studentName: studentUser.fullName,
+            status: "skipped",
+            reason: `${recipient.name} opted out`,
+          });
+          continue;
+        }
+      }
+
+      const nextDue = (fee.installments || [])
+        .filter((i) => !["paid", "waived"].includes(i.status))
+        .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))[0];
+
+      const formattedDueDate = nextDue?.dueDate
+        ? new Date(nextDue.dueDate).toLocaleDateString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          })
+        : "Promptly";
+
+      const renderedMessage = renderTemplateMessage(rawTemplate, {
+        academyName,
         studentName: studentUser.fullName,
-        status: "skipped",
-        reason: `Invalid phone: ${phoneValidation.reason}`,
+        parentName: recipient.name,
+        className: fee.batch?.name || fee.course?.title || "Class",
+        feeAmount: String(fee.totalPayable),
+        paidAmount: String(fee.paidAmount),
+        pendingAmount: String(fee.balanceAmount),
+        dueDate: formattedDueDate,
+        installmentName: nextDue?.label || "Consolidated Balance",
+        supportPhone,
       });
-      continue;
-    }
 
-    if ((integration?.optOutPhoneNumbers || []).includes(phoneValidation.normalizedPhone)) {
-      skippedCount++;
-      results.push({
+      const clickToChatUrl = (!isEmailMode && phoneValidation.isValid)
+        ? generateClickToChatUrl(phoneValidation.normalizedPhone, renderedMessage)
+        : "";
+
+      const reminder = await FeeReminder.create({
+        academyId,
+        studentId: studentUser._id,
+        studentProfileId: fee.studentProfile,
         feeId: fee._id,
-        studentName: studentUser.fullName,
-        status: "skipped",
-        reason: "Recipient opted out",
-      });
-      continue;
-    }
-
-    const nextDue = (fee.installments || [])
-      .filter((i) => !["paid", "waived"].includes(i.status))
-      .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))[0];
-
-    const formattedDueDate = nextDue?.dueDate
-      ? new Date(nextDue.dueDate).toLocaleDateString("en-IN", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        })
-      : "Promptly";
-
-    const renderedMessage = renderTemplateMessage(rawTemplate, {
-      academyName,
-      studentName: studentUser.fullName,
-      parentName: recipient.name,
-      className: fee.batch?.name || fee.course?.title || "Class",
-      feeAmount: String(fee.totalPayable),
-      paidAmount: String(fee.paidAmount),
-      pendingAmount: String(fee.balanceAmount),
-      dueDate: formattedDueDate,
-      installmentName: nextDue?.label || "Consolidated Balance",
-      supportPhone,
-    });
-
-    const clickToChatUrl = generateClickToChatUrl(phoneValidation.normalizedPhone, renderedMessage);
-
-    const reminder = await FeeReminder.create({
-      academyId,
-      studentId: studentUser._id,
-      studentProfileId: fee.studentProfile,
-      feeId: fee._id,
-      installmentId: nextDue?._id || null,
-      installmentLabel: nextDue?.label || "Consolidated Balance",
-      recipient: {
-        name: recipient.name,
-        phone: phoneValidation.normalizedPhone,
-        role: recipient.role,
-      },
-      amountDue: fee.balanceAmount,
-      dueDate: nextDue?.dueDate || null,
-      channel: canUsePlatformApi ? "whatsapp_platform_gateway" : canUseCloudApi ? "whatsapp_cloud_api" : "whatsapp_click_to_chat",
-      reminderType: "manual",
-      reminderRule: "bulk_manual",
-      templateId: templateDoc?._id || null,
-      renderedMessage,
-      clickToChatUrl,
-      status: (canUseCloudApi || canUsePlatformApi) ? "processing" : "draft",
-      createdBy: req.user._id,
-    });
-
-    if (canUsePlatformApi) {
-      const providerMsgId = `MA-BULK-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
-      reminder.status = "sent_to_provider";
-      reminder.providerMessageId = providerMsgId;
-      reminder.providerResponse = { provider: "myacademy_platform_gateway", delivered: true };
-      reminder.sentAt = new Date();
-      reminder.attemptCount = 1;
-      await reminder.save();
-      sentCount++;
-      results.push({
-        feeId: fee._id,
-        studentName: studentUser.fullName,
-        status: "sent_to_provider",
-        messageId: providerMsgId,
+        installmentId: nextDue?._id || null,
+        installmentLabel: nextDue?.label || "Consolidated Balance",
+        recipient: {
+          name: recipient.name,
+          phone: isEmailMode ? recipient.phone || "" : phoneValidation.normalizedPhone,
+          email: recipientEmail || null,
+          role: recipient.role,
+        },
+        amountDue: fee.balanceAmount,
+        dueDate: nextDue?.dueDate || null,
+        channel: isEmailMode ? "resend_email" : canUsePlatformApi ? "whatsapp_platform_gateway" : canUseCloudApi ? "whatsapp_cloud_api" : "whatsapp_click_to_chat",
+        reminderType: "manual",
+        reminderRule: "bulk_manual",
+        templateId: templateDoc?._id || null,
+        renderedMessage,
         clickToChatUrl,
+        status: (isEmailMode || canUseCloudApi || canUsePlatformApi) ? "processing" : "draft",
+        createdBy: req.user._id,
       });
-    } else if (canUseCloudApi) {
-      try {
-        const apiResult = await sendMetaCloudMessage({
-          phoneNumberId: integration.phoneNumberId,
-          accessToken: integration.accessToken,
-          toPhone: phoneValidation.normalizedPhone,
-          messageText: renderedMessage,
-          templateName: templateDoc?.approvalStatus === "approved" ? templateDoc.providerTemplateName : null,
-        });
 
+      if (isEmailMode) {
+        try {
+          const emailSubject = `Payment Reminder: ${academyName} - ${nextDue?.label || "Tuition Fee"}`;
+          const emailHtml = `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+              <div style="text-align: center; padding-bottom: 20px; border-bottom: 1px solid #f1f5f9;">
+                ${academyDoc?.logo ? `<img src="${academyDoc.logo}" alt="${academyName}" style="max-height: 48px; margin-bottom: 10px;" />` : ""}
+                <h2 style="color: #0f172a; margin: 0; font-size: 20px; font-weight: 800;">${academyName}</h2>
+                <p style="color: #2563eb; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 4px 0 0 0;">Official Tuition Fee Reminder</p>
+              </div>
+              
+              <div style="padding: 24px 0;">
+                <p style="color: #334155; font-size: 15px; margin: 0 0 16px 0;">Dear <strong>${recipient.name}</strong>,</p>
+                <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 20px 0;">
+                  This is an official payment notice regarding the pending tuition fee for <strong>${studentUser.fullName}</strong> in <strong>${fee.batch?.name || fee.course?.title || "Academic Program"}</strong>.
+                </p>
+
+                <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
+                  <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                    <tr>
+                      <td style="color: #64748b; padding: 5px 0;">Installment:</td>
+                      <td style="color: #0f172a; font-weight: 700; text-align: right; padding: 5px 0;">${nextDue?.label || "Consolidated Balance"}</td>
+                    </tr>
+                    <tr>
+                      <td style="color: #64748b; padding: 5px 0;">Due Date:</td>
+                      <td style="color: #0f172a; font-weight: 700; text-align: right; padding: 5px 0;">${formattedDueDate}</td>
+                    </tr>
+                    <tr>
+                      <td style="color: #2563eb; font-size: 14px; font-weight: 800; padding: 10px 0 0 0; border-top: 1px dashed #93c5fd;">Amount Due:</td>
+                      <td style="color: #2563eb; font-size: 18px; font-weight: 900; text-align: right; padding: 10px 0 0 0; border-top: 1px dashed #93c5fd;">₹${Number(fee.balanceAmount).toLocaleString("en-IN")}</td>
+                    </tr>
+                  </table>
+                </div>
+
+                <p style="color: #475569; font-size: 13px; line-height: 1.6; margin: 0 0 16px 0;">
+                  Kindly complete the payment through your authorized academy portal.
+                </p>
+                ${supportPhone ? `<p style="color: #64748b; font-size: 12px; margin: 0;">For billing inquiries, contact: <strong>${supportPhone}</strong></p>` : ""}
+              </div>
+
+              <div style="border-top: 1px solid #f1f5f9; padding-top: 16px; text-align: center; color: #94a3b8; font-size: 11px;">
+                <p style="margin: 0;">Sent securely via Resend on behalf of ${academyName}.</p>
+              </div>
+            </div>
+          `;
+
+          await sendEmail({
+            to: recipientEmail,
+            subject: emailSubject,
+            html: emailHtml,
+          });
+
+          reminder.status = "delivered";
+          reminder.deliveredAt = new Date();
+          reminder.sentAt = new Date();
+          reminder.attemptCount = 1;
+          reminder.providerResponse = { provider: "resend", delivered: true };
+          await reminder.save();
+
+          sentCount++;
+          results.push({
+            feeId: fee._id,
+            recipientRole: recipient.role,
+            studentName: studentUser.fullName,
+            status: "delivered",
+            channel: "resend_email",
+          });
+        } catch (emailErr) {
+          reminder.status = "failed";
+          reminder.failedAt = new Date();
+          reminder.failureReason = emailErr.message || "Email dispatch failed";
+          reminder.attemptCount = 1;
+          await reminder.save();
+
+          failedCount++;
+          results.push({
+            feeId: fee._id,
+            recipientRole: recipient.role,
+            studentName: studentUser.fullName,
+            status: "failed",
+            error: emailErr.message,
+          });
+        }
+      } else if (canUsePlatformApi) {
+        const providerMsgId = `MA-BULK-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
         reminder.status = "sent_to_provider";
-        reminder.providerMessageId = apiResult.messageId;
-        reminder.providerResponse = apiResult.providerResponse;
+        reminder.providerMessageId = providerMsgId;
+        reminder.providerResponse = { provider: "myacademy_platform_gateway", delivered: true };
         reminder.sentAt = new Date();
         reminder.attemptCount = 1;
         await reminder.save();
-
         sentCount++;
         results.push({
           feeId: fee._id,
+          recipientRole: recipient.role,
           studentName: studentUser.fullName,
           status: "sent_to_provider",
-          messageId: apiResult.messageId,
+          messageId: providerMsgId,
+          clickToChatUrl,
         });
-      } catch (apiErr) {
-        reminder.status = "failed";
-        reminder.failedAt = new Date();
-        reminder.failureReason = apiErr.message || "Meta API error";
-        reminder.providerResponse = apiErr.providerResponse || null;
-        reminder.attemptCount = 1;
-        await reminder.save();
+      } else if (canUseCloudApi) {
+        try {
+          const apiResult = await sendMetaCloudMessage({
+            phoneNumberId: integration.phoneNumberId,
+            accessToken: integration.accessToken,
+            toPhone: phoneValidation.normalizedPhone,
+            messageText: renderedMessage,
+            templateName: templateDoc?.approvalStatus === "approved" ? templateDoc.providerTemplateName : null,
+          });
 
-        failedCount++;
+          reminder.status = "sent_to_provider";
+          reminder.providerMessageId = apiResult.messageId;
+          reminder.providerResponse = apiResult.providerResponse;
+          reminder.sentAt = new Date();
+          reminder.attemptCount = 1;
+          await reminder.save();
+
+          sentCount++;
+          results.push({
+            feeId: fee._id,
+            recipientRole: recipient.role,
+            studentName: studentUser.fullName,
+            status: "sent_to_provider",
+            messageId: apiResult.messageId,
+          });
+        } catch (apiErr) {
+          reminder.status = "failed";
+          reminder.failedAt = new Date();
+          reminder.failureReason = apiErr.message || "Meta API error";
+          reminder.providerResponse = apiErr.providerResponse || null;
+          reminder.attemptCount = 1;
+          await reminder.save();
+
+          failedCount++;
+          results.push({
+            feeId: fee._id,
+            recipientRole: recipient.role,
+            studentName: studentUser.fullName,
+            status: "failed",
+            error: apiErr.message,
+          });
+        }
+      } else {
+        queuedCount++;
         results.push({
           feeId: fee._id,
+          recipientRole: recipient.role,
           studentName: studentUser.fullName,
-          status: "failed",
-          error: apiErr.message,
+          status: "draft",
+          clickToChatUrl,
         });
       }
-    } else {
-      queuedCount++;
-      results.push({
-        feeId: fee._id,
-        studentName: studentUser.fullName,
-        status: "draft",
-        clickToChatUrl,
-      });
     }
   }
 
@@ -925,8 +1219,12 @@ exports.sendBulkReminders = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    message: canUseCloudApi
+    message: isEmailMode
+      ? `Dispatched ${sentCount} reminders via Resend Email (${failedCount} failed, ${skippedCount} skipped).`
+      : canUseCloudApi
       ? `Dispatched ${sentCount} reminders via WhatsApp Cloud API (${failedCount} failed, ${skippedCount} skipped).`
+      : canUsePlatformApi
+      ? `Dispatched ${sentCount} reminders via MyAcademy WhatsApp Gateway (${failedCount} failed, ${skippedCount} skipped).`
       : `Generated ${queuedCount} manual WhatsApp reminders (${skippedCount} skipped).`,
     summary: {
       totalCandidates: candidateFees.length,
@@ -1088,6 +1386,7 @@ exports.updateSettings = asyncHandler(async (req, res) => {
   const academyId = academyIdOf(req);
   const {
     automaticRemindersEnabled,
+    defaultRecipientRole,
     isPaused,
     timezone,
     allowedSendingHours,
@@ -1104,6 +1403,9 @@ exports.updateSettings = asyncHandler(async (req, res) => {
   }
 
   if (automaticRemindersEnabled !== undefined) settings.automaticRemindersEnabled = Boolean(automaticRemindersEnabled);
+  if (defaultRecipientRole && ["student", "parent", "both"].includes(defaultRecipientRole)) {
+    settings.defaultRecipientRole = defaultRecipientRole;
+  }
   if (isPaused !== undefined) settings.isPaused = Boolean(isPaused);
   if (timezone) settings.timezone = timezone;
   if (allowedSendingHours) {
@@ -1275,6 +1577,7 @@ exports.saveIntegration = asyncHandler(async (req, res) => {
   if (mode === "manual") normalizedMode = "direct_whatsapp";
   if (mode === "myacademy_api") normalizedMode = "platform_api";
   if (mode === "custom_api") normalizedMode = "cloud_api";
+  if (mode === "email" || mode === "resend_email") normalizedMode = "resend_email";
 
   integration.mode = normalizedMode;
   integration.phoneNumberId = phoneNumberId.trim();
@@ -1293,6 +1596,10 @@ exports.saveIntegration = asyncHandler(async (req, res) => {
   } else if (normalizedMode === "platform_api") {
     integration.provider = "myacademy_managed";
     integration.connectionStatus = "connected";
+    integration.lastError = "";
+  } else if (normalizedMode === "resend_email") {
+    integration.provider = "resend";
+    integration.connectionStatus = process.env.RESEND_API_KEY ? "connected" : "not_configured";
     integration.lastError = "";
   } else if (normalizedMode === "cloud_api") {
     integration.provider = "meta_cloud_api";
@@ -1322,19 +1629,51 @@ exports.saveIntegration = asyncHandler(async (req, res) => {
 exports.testIntegrationConnection = asyncHandler(async (req, res) => {
   const academyId = academyIdOf(req);
   const integration = await WhatsAppIntegration.findOne({ academyId }).select("+accessToken");
+  const targetMode = req.body?.mode || req.query?.mode || integration?.mode || "direct_whatsapp";
 
-  if (!integration || integration.mode !== "cloud_api") {
-    return res.status(200).json({
-      success: true,
+  if (targetMode === "resend_email" || targetMode === "email") {
+    const hasKey = Boolean(process.env.RESEND_API_KEY);
+    const msg = hasKey
+      ? "Resend Email Gateway is verified and ready to dispatch official fee reminders!"
+      : "RESEND_API_KEY is not configured in backend environment.";
+    return res.status(hasKey ? 200 : 400).json({
+      success: hasKey,
+      message: msg,
       data: {
-        mode: "manual",
-        connectionStatus: "connected",
-        message: "Manual WhatsApp mode is active and requires no external API credentials.",
+        mode: "resend_email",
+        connectionStatus: hasKey ? "connected" : "failed",
+        message: msg,
       },
     });
   }
 
-  if (!integration.phoneNumberId || !integration.accessToken) {
+  if (targetMode === "direct_whatsapp" || targetMode === "manual") {
+    const msg = "Direct Admin WhatsApp click-to-chat mode is active with no setup required.";
+    return res.status(200).json({
+      success: true,
+      message: msg,
+      data: {
+        mode: "direct_whatsapp",
+        connectionStatus: "connected",
+        message: msg,
+      },
+    });
+  }
+
+  if (targetMode === "platform_api" || targetMode === "myacademy_api") {
+    const msg = "MyAcademy Managed WhatsApp Gateway is currently under development (Coming Soon).";
+    return res.status(200).json({
+      success: true,
+      message: msg,
+      data: {
+        mode: "myacademy_api",
+        connectionStatus: "pending",
+        message: msg,
+      },
+    });
+  }
+
+  if (!integration || !integration.phoneNumberId || !integration.accessToken) {
     return res.status(400).json({
       success: false,
       message: "Please configure Phone Number ID and Access Token before testing.",

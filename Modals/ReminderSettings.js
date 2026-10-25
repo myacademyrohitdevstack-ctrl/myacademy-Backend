@@ -42,6 +42,11 @@ const reminderSettingsSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    defaultRecipientRole: {
+      type: String,
+      enum: ["student", "parent", "both"],
+      default: "student",
+    },
     isPaused: {
       type: Boolean,
       default: false,

@@ -19,6 +19,37 @@ const { validatePasswordStrength } = require("../Utils/passwordValidator");
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCK_TIME = 15 * 60 * 1000; // 15 minutes
 
+// Cross-subdomain & mobile persistent cookie options
+const getCookieOptions = (req) => {
+  const isProd = process.env.NODE_ENV === "production";
+  const origin = req?.headers?.origin || "";
+  const host = req?.headers?.host || "";
+
+  // Enable cross-subdomain sharing for *.rohitdevstack.online or custom domain
+  let domain = process.env.COOKIE_DOMAIN;
+  if (!domain && (origin.includes("rohitdevstack.online") || host.includes("rohitdevstack.online"))) {
+    domain = ".rohitdevstack.online";
+  }
+
+  // Cross-subdomain or HTTPS requires sameSite: "none" and secure: true so mobile WebKit/Chrome transmits it
+  const isCrossSiteOrSecure = isProd || Boolean(domain) || origin.startsWith("https://");
+
+  return {
+    httpOnly: true,
+    secure: isCrossSiteOrSecure,
+    sameSite: isCrossSiteOrSecure ? "none" : "lax",
+    domain: domain || undefined,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: "/",
+  };
+};
+
+const getClearCookieOptions = (req) => {
+  const opts = getCookieOptions(req);
+  delete opts.maxAge;
+  return opts;
+};
+
 // Generate a 6-digit numeric OTP.
 const generateOtp = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -551,12 +582,7 @@ const login = asyncHandler(async (req, res) => {
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
   });
 
-  res.cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
+  res.cookie("refreshToken", refreshToken, getCookieOptions(req));
 
   return res.status(200).json({
     success: true,
@@ -687,12 +713,7 @@ const verify2FA = asyncHandler(async (req, res) => {
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
   });
 
-  res.cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
+  res.cookie("refreshToken", refreshToken, getCookieOptions(req));
 
   return res.status(200).json({
     success: true,
@@ -782,7 +803,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     const changedTimestamp = Math.floor(user.passwordChangedAt.getTime() / 1000);
     if (decoded.iat < changedTimestamp) {
       await Session.deleteOne({ _id: session._id });
-      res.clearCookie("refreshToken");
+      res.clearCookie("refreshToken", getClearCookieOptions(req));
       return res.status(401).json({
         success: false,
         message: "Password changed. Please log in again.",
@@ -850,12 +871,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   session.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   await session.save();
 
-  res.cookie("refreshToken", newRefreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
+  res.cookie("refreshToken", newRefreshToken, getCookieOptions(req));
 
   return res.status(200).json({
     success: true,
@@ -893,11 +909,7 @@ const logout = asyncHandler(async (req, res) => {
     });
   }
 
-  res.clearCookie("refreshToken", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-  });
+  res.clearCookie("refreshToken", getClearCookieOptions(req));
 
   return res.status(200).json({
     success: true,
@@ -912,11 +924,7 @@ const logoutAll = asyncHandler(async (req, res) => {
     user: req.user._id,
   });
 
-  res.clearCookie("refreshToken", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-  });
+  res.clearCookie("refreshToken", getClearCookieOptions(req));
 
   return res.status(200).json({
     success: true,

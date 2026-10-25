@@ -2,6 +2,8 @@ const { createParent } = require("../Controllers/parent");
 const express = require("express");
 const {
   getSubscriptionUsage,
+  getAcademyProfile,
+  updateAcademyProfile,
   getUsers,
   approveUser,
   rejectUser,
@@ -21,8 +23,12 @@ const {
 } = require("../Controllers/admin");
 const protect = require("../Middleware/protect");
 const authorize = require("../Middleware/authorize");
+const upload = require("../Middleware/upload");
 
 const router = express.Router();
+router.get('/academy', protect, authorize("admin"), getAcademyProfile);
+router.put('/academy', protect, authorize("admin"), upload.single('logo'), updateAcademyProfile);
+router.get('/academy-public', protect, getAcademyProfile);
 router.get('/users', protect, authorize("admin"), getUsers);
 router.get('/user/:id', protect, authorize("admin"), getUserById);
 router.get('/dashboard-stats', protect, authorize("admin"), getDashboardStats);
