@@ -594,6 +594,10 @@ const login = asyncHandler(async (req, res) => {
       email: user.email,
       role: user.role,
       platformRole: user.platformRole || "user",
+      permissions: user.permissions || [],
+      staffTitle: user.staffTitle || "",
+      permissions: user.permissions || [],
+      staffTitle: user.staffTitle || "",
     },
     academy: academy
       ? {
@@ -725,6 +729,10 @@ const verify2FA = asyncHandler(async (req, res) => {
       email: user.email,
       role: user.role,
       platformRole: user.platformRole || "user",
+      permissions: user.permissions || [],
+      staffTitle: user.staffTitle || "",
+      permissions: user.permissions || [],
+      staffTitle: user.staffTitle || "",
     },
     academy: academy
       ? {
@@ -885,6 +893,8 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
       profileImage: user.profileImage,
       role: user.role,
       platformRole: user.platformRole || "user",
+      permissions: user.permissions || [],
+      staffTitle: user.staffTitle || "",
     },
     academy: academy
       ? {

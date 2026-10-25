@@ -1,48 +1,50 @@
 const express = require("express");
 const router = express.Router();
 const protect = require("../Middleware/protect");
-const authorize = require("../Middleware/authorize");
+const {
+  requirePermissionOrRole,
+} = require("../Middleware/authorizePermission");
 const controller = require("../Controllers/whatsappReminders");
 
-// All admin reminder routes require authentication and admin role
-router.use(protect, authorize("admin"));
+// All reminder routes require authentication
+router.use(protect);
 
 // Dashboard & Metrics
-router.get("/dashboard", controller.getDashboard);
+router.get("/dashboard", requirePermissionOrRole("reminders.read", "admin"), controller.getDashboard);
 
 // History & Listing
-router.get("/", controller.listReminders);
-router.get("/:reminderId", controller.getReminderById);
+router.get("/", requirePermissionOrRole("reminders.read", "admin"), controller.listReminders);
+router.get("/:reminderId", requirePermissionOrRole("reminders.read", "admin"), controller.getReminderById);
 
 // Manual & Bulk Reminders
-router.post("/preview", controller.previewReminder);
-router.post("/send", controller.sendManualReminder);
-router.post("/bulk-send", controller.sendBulkReminders);
-router.post("/:reminderId/confirm-manual-send", controller.confirmManualSend);
-router.post("/:reminderId/retry", controller.retryReminder);
-router.post("/:reminderId/cancel", controller.cancelReminder);
+router.post("/preview", requirePermissionOrRole("reminders.send", "admin"), controller.previewReminder);
+router.post("/send", requirePermissionOrRole("reminders.send", "admin"), controller.sendManualReminder);
+router.post("/bulk-send", requirePermissionOrRole("reminders.send", "admin"), controller.sendBulkReminders);
+router.post("/:reminderId/confirm-manual-send", requirePermissionOrRole("reminders.send", "admin"), controller.confirmManualSend);
+router.post("/:reminderId/retry", requirePermissionOrRole("reminders.send", "admin"), controller.retryReminder);
+router.post("/:reminderId/cancel", requirePermissionOrRole("reminders.send", "admin"), controller.cancelReminder);
 
 // Settings & Automation Rules
-router.get("/settings/rules", controller.getSettings);
-router.patch("/settings/rules", controller.updateSettings);
-router.post("/settings/trigger-run", controller.triggerAutomaticRun);
+router.get("/settings/rules", requirePermissionOrRole("reminders.read", "admin"), controller.getSettings);
+router.patch("/settings/rules", requirePermissionOrRole("reminders.send", "admin"), controller.updateSettings);
+router.post("/settings/trigger-run", requirePermissionOrRole("reminders.send", "admin"), controller.triggerAutomaticRun);
 
 // Message Templates
-router.get("/templates/all", controller.listTemplates);
-router.post("/templates", controller.createTemplate);
-router.patch("/templates/:templateId", controller.updateTemplate);
-router.delete("/templates/:templateId", controller.deleteTemplate);
-router.post("/templates/reset-defaults", controller.resetDefaultTemplates);
+router.get("/templates/all", requirePermissionOrRole("reminders.read", "admin"), controller.listTemplates);
+router.post("/templates", requirePermissionOrRole("reminders.send", "admin"), controller.createTemplate);
+router.patch("/templates/:templateId", requirePermissionOrRole("reminders.send", "admin"), controller.updateTemplate);
+router.delete("/templates/:templateId", requirePermissionOrRole("reminders.send", "admin"), controller.deleteTemplate);
+router.post("/templates/reset-defaults", requirePermissionOrRole("reminders.send", "admin"), controller.resetDefaultTemplates);
 
-// WhatsApp Integration
-router.get("/integration/status", controller.getIntegration);
-router.post("/integration/save", controller.saveIntegration);
-router.post("/integration/test", controller.testIntegrationConnection);
-router.delete("/integration/disconnect", controller.disconnectIntegration);
+// WhatsApp Integration (Credentials & Gateway setup)
+router.get("/integration/status", requirePermissionOrRole("reminders.read", "admin"), controller.getIntegration);
+router.post("/integration/save", requirePermissionOrRole("academy_settings.update", "admin"), controller.saveIntegration);
+router.post("/integration/test", requirePermissionOrRole("academy_settings.update", "admin"), controller.testIntegrationConnection);
+router.delete("/integration/disconnect", requirePermissionOrRole("academy_settings.update", "admin"), controller.disconnectIntegration);
 
 // Scheduled Reminders
-router.get("/scheduled/list", controller.listScheduled);
-router.post("/scheduled/create", controller.scheduleReminder);
-router.delete("/scheduled/:reminderId", controller.cancelReminder);
+router.get("/scheduled/list", requirePermissionOrRole("reminders.read", "admin"), controller.listScheduled);
+router.post("/scheduled/create", requirePermissionOrRole("reminders.send", "admin"), controller.scheduleReminder);
+router.delete("/scheduled/:reminderId", requirePermissionOrRole("reminders.send", "admin"), controller.cancelReminder);
 
 module.exports = router;

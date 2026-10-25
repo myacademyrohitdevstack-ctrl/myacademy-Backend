@@ -11,30 +11,37 @@ const {
   getAttendanceById,
 } = require("../Controllers/attendence");
 const protect = require("../Middleware/protect");
-const authorize = require("../Middleware/authorize");
+const {
+  requirePermissionOrRole,
+} = require("../Middleware/authorizePermission");
+
 // Mark attendance
 router.post(
   "/mark",
   protect,
-  authorize("admin","teacher"),
+  requirePermissionOrRole("attendance.create", "admin", "teacher"),
   markAttendance
 );
+
 // Get attendance by batch & date
-// Example:
-// GET /api/attendance?batch=123&date=2026-06-26
 router.get(
   "/",
   protect,
+  requirePermissionOrRole("attendance.read", "admin", "teacher", "student", "parent"),
   getAttendance
 );
+
 router.get(
   "/:attendanceId/ById",
   protect,
+  requirePermissionOrRole("attendance.read", "admin", "teacher", "student", "parent"),
   getAttendanceById
 );
+
 router.get(
   "/:batchId/dashboard",
   protect,
+  requirePermissionOrRole("attendance.read", "admin", "teacher"),
   getAttendanceDashboard
 );
 
@@ -42,6 +49,7 @@ router.get(
 router.get(
   "/batch/:batchId",
   protect,
+  requirePermissionOrRole("attendance.read", "admin", "teacher", "student", "parent"),
   getBatchAttendanceHistory
 );
 
@@ -56,14 +64,15 @@ router.get(
 router.put(
   "/:attendanceId",
   protect,
+  requirePermissionOrRole("attendance.update", "admin", "teacher"),
   updateAttendance
 );
 
 // Delete attendance
 router.delete(
   "/:attendanceId",
-  authorize("admin"),
   protect,
+  requirePermissionOrRole("attendance.update", "admin"),
   deleteAttendance
 );
 

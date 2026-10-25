@@ -126,6 +126,30 @@ const approveUser = asyncHandler(async (req, res) => {
       });
     }
 
+    if (req.user.role === "academy_staff") {
+      if (user.role === "admin" || user.role === "academy_staff" || user.platformRole === "super_admin") {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Staff members cannot modify administrative accounts.",
+        });
+      }
+      if (user.role === "student" && !req.user.permissions?.includes("students.update")) {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. Required permission: 'students.update'.",
+        });
+      }
+      if (user.role === "teacher" && !req.user.permissions?.includes("teachers.update")) {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. Required permission: 'teachers.update'.",
+        });
+      }
+    }
+
     if (user.approvalStatus === "approved") {
       await session.abortTransaction();
       return res.status(400).json({
@@ -234,6 +258,30 @@ user = await User.findOne({
       });
     }
 
+    if (req.user.role === "academy_staff") {
+      if (user.role === "admin" || user.role === "academy_staff" || user.platformRole === "super_admin") {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Staff members cannot modify administrative accounts.",
+        });
+      }
+      if (user.role === "student" && !req.user.permissions?.includes("students.update")) {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. Required permission: 'students.update'.",
+        });
+      }
+      if (user.role === "teacher" && !req.user.permissions?.includes("teachers.update")) {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. Required permission: 'teachers.update'.",
+        });
+      }
+    }
+
     if (user.approvalStatus === "rejected") {
       await session.abortTransaction();
 
@@ -324,6 +372,30 @@ const blockUser = asyncHandler(async (req, res) => {
       });
     }
 
+    if (req.user.role === "academy_staff") {
+      if (user.role === "admin" || user.role === "academy_staff" || user.platformRole === "super_admin") {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Staff members cannot modify administrative accounts.",
+        });
+      }
+      if (user.role === "student" && !req.user.permissions?.includes("students.update")) {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. Required permission: 'students.update'.",
+        });
+      }
+      if (user.role === "teacher" && !req.user.permissions?.includes("teachers.update")) {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. Required permission: 'teachers.update'.",
+        });
+      }
+    }
+
     if (user.approvalStatus !== "approved") {
       await session.abortTransaction();
 
@@ -412,6 +484,30 @@ const unblockUser = asyncHandler(async (req, res) => {
       });
     }
 
+    if (req.user.role === "academy_staff") {
+      if (user.role === "admin" || user.role === "academy_staff" || user.platformRole === "super_admin") {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Staff members cannot modify administrative accounts.",
+        });
+      }
+      if (user.role === "student" && !req.user.permissions?.includes("students.update")) {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. Required permission: 'students.update'.",
+        });
+      }
+      if (user.role === "teacher" && !req.user.permissions?.includes("teachers.update")) {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. Required permission: 'teachers.update'.",
+        });
+      }
+    }
+
     if (user.status !== "blocked") {
       await session.abortTransaction();
 
@@ -485,6 +581,27 @@ const user = await User.findOne({
     });
   }
 
+  if (req.user.role === "academy_staff") {
+    if (user.role === "admin" || user.role === "academy_staff" || user.platformRole === "super_admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Staff members cannot view administrative user profiles.",
+      });
+    }
+    if (user.role === "student" && !req.user.permissions?.includes("students.read")) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Required permission: 'students.read'.",
+      });
+    }
+    if (user.role === "teacher" && !req.user.permissions?.includes("teachers.read")) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Required permission: 'teachers.read'.",
+      });
+    }
+  }
+
   return res.status(200).json({
     success: true,
     user,
@@ -519,6 +636,33 @@ const user = await User.findOne({
       success: false,
       message: "User not found.",
     });
+  }
+
+  if (req.user.role === "academy_staff") {
+    if (user.role === "admin" || user.role === "academy_staff" || user.platformRole === "super_admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Staff members cannot modify administrative accounts.",
+      });
+    }
+    if (updates.role && updates.role !== user.role) {
+      return res.status(403).json({
+        success: false,
+        message: "Staff members cannot change user roles.",
+      });
+    }
+    if (user.role === "student" && !req.user.permissions?.includes("students.update")) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Required permission: 'students.update'.",
+      });
+    }
+    if (user.role === "teacher" && !req.user.permissions?.includes("teachers.update")) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Required permission: 'teachers.update'.",
+      });
+    }
   }
 
 const updatedUser = await User.findOneAndUpdate(
@@ -1003,6 +1147,30 @@ const deleteUserByAdmin = asyncHandler(async (req, res) => {
         success: false,
         message: "User not found.",
       });
+    }
+
+    if (req.user.role === "academy_staff") {
+      if (user.role === "admin" || user.role === "academy_staff" || user.platformRole === "super_admin") {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Staff members cannot modify administrative accounts.",
+        });
+      }
+      if (user.role === "student" && !req.user.permissions?.includes("students.update")) {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. Required permission: 'students.update'.",
+        });
+      }
+      if (user.role === "teacher" && !req.user.permissions?.includes("teachers.update")) {
+        await session.abortTransaction();
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. Required permission: 'teachers.update'.",
+        });
+      }
     }
 
     // Prevent deleting yourself

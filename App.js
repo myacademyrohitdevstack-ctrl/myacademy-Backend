@@ -78,6 +78,7 @@ app.use(express.json({ limit: "50mb" }));
 
 /* Importing the routes from the files in the Routes folder. */
 app.use("/api/auth", require("./Routes/auth"));
+app.use("/api/admin/staff", require("./Routes/staff"));
 app.use("/api/admin", require("./Routes/admin"));
 app.use("/api/student", require("./Routes/student"));
 app.use("/api/teacher", require("./Routes/teacher"));

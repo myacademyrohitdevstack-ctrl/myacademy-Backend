@@ -1,8 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const protect = require("../Middleware/protect");
-const authorize = require("../Middleware/authorize");
-const upload = require("../Middleware/upload");
+const {
+  requirePermissionOrRole,
+} = require("../Middleware/authorizePermission");
 const {
   getAllAcademyBatches,
   createBatch,
@@ -15,14 +16,14 @@ const {
   removeStudentFromBatch,
 } = require("../Controllers/batches");
 
-router.get("/", protect, getAllAcademyBatches);
-router.post("/:courseId/batches", protect, authorize("admin"), createBatch);
-router.get("/:slug/batches", protect, getBatches);
-router.get("/:batchId/byId", protect, getBatchById);
-router.patch("/:batchId/update", protect, updateBatch);
-router.delete("/:courseId/batches/:batchId", protect, authorize("admin"), deleteBatch);
-router.post("/:batchId/students", protect, addStudentToBatch);
-router.get("/:batchId/students", protect, getBatchStudents);
-router.delete("/:batchId/students/:studentId", protect, removeStudentFromBatch);
+router.get("/", protect, requirePermissionOrRole("batches.read", "admin", "teacher", "student", "parent"), getAllAcademyBatches);
+router.post("/:courseId/batches", protect, requirePermissionOrRole("batches.create", "admin"), createBatch);
+router.get("/:slug/batches", protect, requirePermissionOrRole("batches.read", "admin", "teacher", "student", "parent"), getBatches);
+router.get("/:batchId/byId", protect, requirePermissionOrRole("batches.read", "admin", "teacher", "student", "parent"), getBatchById);
+router.patch("/:batchId/update", protect, requirePermissionOrRole("batches.update", "admin", "teacher"), updateBatch);
+router.delete("/:courseId/batches/:batchId", protect, requirePermissionOrRole("batches.delete", "admin"), deleteBatch);
+router.post("/:batchId/students", protect, requirePermissionOrRole("batches.update", "admin"), addStudentToBatch);
+router.get("/:batchId/students", protect, requirePermissionOrRole("batches.read", "admin", "teacher"), getBatchStudents);
+router.delete("/:batchId/students/:studentId", protect, requirePermissionOrRole("batches.update", "admin"), removeStudentFromBatch);
 
 module.exports = router;

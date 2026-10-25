@@ -1,7 +1,9 @@
 const express = require("express");
 
 const protect = require("../Middleware/protect");
-const authorize = require("../Middleware/authorize");
+const {
+  requirePermissionOrRole,
+} = require("../Middleware/authorizePermission");
 const {
   createAnnouncement,
   getAnnouncements,
@@ -15,13 +17,13 @@ const {
 
 const router = express.Router();
 
-router.post("/create", protect, authorize("admin", "teacher"), createAnnouncement);
-router.get("/all", protect, authorize("admin"), getAnnouncements);
+router.post("/create", protect, requirePermissionOrRole("announcements.manage", "admin", "teacher"), createAnnouncement);
+router.get("/all", protect, requirePermissionOrRole("announcements.manage", "admin"), getAnnouncements);
 router.get("/system/all", protect, getSystemAnnouncements);
 router.get("/course/:courseId", protect, getCourseAnnouncements);
 router.get("/:batchId/announcements", protect, getBatchAnnouncements);
 router.get("/:id", protect, getAnnouncementById);
-router.put("/:id", protect, authorize("admin", "teacher"), updateAnnouncement);
-router.delete("/:id/delete", protect, authorize("admin", "teacher"), deleteAnnouncement);
+router.put("/:id", protect, requirePermissionOrRole("announcements.manage", "admin", "teacher"), updateAnnouncement);
+router.delete("/:id/delete", protect, requirePermissionOrRole("announcements.manage", "admin", "teacher"), deleteAnnouncement);
 
 module.exports = router;

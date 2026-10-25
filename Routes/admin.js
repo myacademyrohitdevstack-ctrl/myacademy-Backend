@@ -22,30 +22,48 @@ const {
   bulkCreateTeachers,
 } = require("../Controllers/admin");
 const protect = require("../Middleware/protect");
-const authorize = require("../Middleware/authorize");
+const {
+  requirePermissionOrRole,
+  requireAnyPermission,
+  requireAcademyOwner,
+} = require("../Middleware/authorizePermission");
 const upload = require("../Middleware/upload");
 
 const router = express.Router();
-router.get('/academy', protect, authorize("admin"), getAcademyProfile);
-router.put('/academy', protect, authorize("admin"), upload.single('logo'), updateAcademyProfile);
-router.get('/academy-public', protect, getAcademyProfile);
-router.get('/users', protect, authorize("admin"), getUsers);
-router.get('/user/:id', protect, authorize("admin"), getUserById);
-router.get('/dashboard-stats', protect, authorize("admin"), getDashboardStats);
-router.get('/subscription-usage', protect, authorize("admin"), getSubscriptionUsage);
-router.get('/recent-activties', protect, authorize("admin"), getRecentEnrollments);
-router.get('/all-classes', protect, authorize("admin"), getallClasses);
-router.get('/all-announcements', protect, authorize("admin"), getallAnnouncement);
-router.patch('/user/:id/approve', protect, authorize("admin"), approveUser);
-router.patch('/user/:id/reject', protect, authorize("admin"), rejectUser);
-router.patch('/user/:id/block', protect, authorize("admin"), blockUser);
-router.patch('/user/:id/unblock', protect, authorize("admin"), unblockUser);
-router.patch('/user/:id/update', protect, authorize("admin"), updateUserByAdmin);
-router.post('/create-student', protect, authorize("admin"), createStudent);
-router.post('/create-teacher', protect, authorize("admin"), createTeacher);
-router.post('/bulk-create-students', protect, authorize("admin"), bulkCreateStudents);
-router.post('/bulk-create-teachers', protect, authorize("admin"), bulkCreateTeachers);
-router.post('/create-parent', protect, authorize("admin"), createParent);
-router.delete('/user/:id', protect, authorize("admin"), deleteUserByAdmin);
+
+// Academy profile and settings
+router.get("/academy", protect, requirePermissionOrRole("academy_settings.read", "admin"), getAcademyProfile);
+router.put("/academy", protect, requirePermissionOrRole("academy_settings.update", "admin"), upload.single("logo"), updateAcademyProfile);
+router.get("/academy-public", protect, getAcademyProfile);
+
+// Subscription and billing is strictly restricted to academy owner
+router.get("/subscription-usage", protect, requireAcademyOwner, getSubscriptionUsage);
+
+// User listings & details
+router.get("/users", protect, requireAnyPermission("students.read", "teachers.read"), getUsers);
+router.get("/user/:id", protect, requireAnyPermission("students.read", "teachers.read"), getUserById);
+
+// Analytics and activity feeds
+router.get("/dashboard-stats", protect, requirePermissionOrRole("reports.read", "admin"), getDashboardStats);
+router.get("/recent-activties", protect, requirePermissionOrRole("reports.read", "admin"), getRecentEnrollments);
+router.get("/all-classes", protect, requirePermissionOrRole("batches.read", "admin"), getallClasses);
+router.get("/all-announcements", protect, requirePermissionOrRole("announcements.manage", "admin"), getallAnnouncement);
+
+// User status & moderation
+router.patch("/user/:id/approve", protect, requireAnyPermission("students.update", "teachers.update"), approveUser);
+router.patch("/user/:id/reject", protect, requireAnyPermission("students.update", "teachers.update"), rejectUser);
+router.patch("/user/:id/block", protect, requireAnyPermission("students.update", "teachers.update"), blockUser);
+router.patch("/user/:id/unblock", protect, requireAnyPermission("students.update", "teachers.update"), unblockUser);
+router.patch("/user/:id/update", protect, requireAnyPermission("students.update", "teachers.update"), updateUserByAdmin);
+
+// User creation
+router.post("/create-student", protect, requirePermissionOrRole("students.create", "admin"), createStudent);
+router.post("/create-teacher", protect, requirePermissionOrRole("teachers.create", "admin"), createTeacher);
+router.post("/bulk-create-students", protect, requirePermissionOrRole("students.create", "admin"), bulkCreateStudents);
+router.post("/bulk-create-teachers", protect, requirePermissionOrRole("teachers.create", "admin"), bulkCreateTeachers);
+router.post("/create-parent", protect, requirePermissionOrRole("students.create", "admin"), createParent);
+
+// User deletion
+router.delete("/user/:id", protect, requireAnyPermission("students.delete", "teachers.delete"), deleteUserByAdmin);
 
 module.exports = router;

@@ -1,5 +1,6 @@
 
 const mongoose = require("mongoose");
+const { VALID_PERMISSIONS_LIST } = require("../Utils/permissions");
 
 const userSchema = new mongoose.Schema(
   {
@@ -57,8 +58,36 @@ const userSchema = new mongoose.Schema(
     // Role within an academy.
     role: {
       type: String,
-      enum: ["student", "teacher", "admin", "parent"],
+      enum: ["student", "teacher", "admin", "parent", "academy_staff"],
       default: "student",
+    },
+
+    // Optional title/designation for academy_staff (e.g., 'Operations Lead', 'Accountant')
+    staffTitle: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 100,
+    },
+
+    // Explicit scoped permissions for academy_staff
+    permissions: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: function (perms) {
+          if (!Array.isArray(perms)) return false;
+          return perms.every((p) => VALID_PERMISSIONS_LIST.includes(p));
+        },
+        message: (props) => `Invalid staff permission encountered in: ${props.value}`,
+      },
+    },
+
+    // Reference to the academy owner who invited/assigned this staff member
+    invitedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
     },
 
     status: {
