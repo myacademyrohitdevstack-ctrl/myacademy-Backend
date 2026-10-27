@@ -2,7 +2,6 @@ const mongoose = require("mongoose");
 
 const attendanceRecordSchema = new mongoose.Schema(
   {
- 
     student: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -15,9 +14,40 @@ const attendanceRecordSchema = new mongoose.Schema(
       required: true,
     },
 
+    remarks: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
     markedAt: {
       type: Date,
       default: Date.now,
+    },
+  },
+  { _id: false }
+);
+
+const attendanceAuditSchema = new mongoose.Schema(
+  {
+    modifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    modifiedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    student: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    previousStatus: String,
+    newStatus: String,
+    reason: {
+      type: String,
+      default: "",
     },
   },
   { _id: false }
@@ -31,11 +61,19 @@ const attendanceSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-       academyId: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "Academy",
-  required: true,
-},
+
+    session: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ClassSession",
+      default: null,
+    },
+
+    academyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Academy",
+      required: true,
+      index: true,
+    },
 
     date: {
       type: Date,
@@ -47,12 +85,18 @@ const attendanceSchema = new mongoose.Schema(
       default: [],
     },
 
+    auditHistory: {
+      type: [attendanceAuditSchema],
+      default: [],
+    },
+
     markedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
-      // Soft Delete
+
+    // Soft Delete
     isDeleted: {
       type: Boolean,
       default: false,
@@ -75,6 +119,17 @@ const attendanceSchema = new mongoose.Schema(
   }
 );
 
+// Prevent duplicate attendance for same session
+attendanceSchema.index(
+  {
+    session: 1,
+  },
+  {
+    unique: true,
+    sparse: true,
+  }
+);
+
 // Prevent duplicate attendance for same batch on same day
 attendanceSchema.index(
   {
@@ -83,12 +138,10 @@ attendanceSchema.index(
   },
   {
     unique: true,
+    sparse: true,
   }
 );
 
 module.exports =
   mongoose.models.Attendance ||
-  mongoose.model(
-    "Attendance",
-    attendanceSchema
-  );
+  mongoose.model("Attendance", attendanceSchema);

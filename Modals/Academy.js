@@ -61,6 +61,12 @@ const academySchema = new mongoose.Schema(
       default: "offline",
     },
 
+    timezone: {
+      type: String,
+      default: "Asia/Kolkata",
+      trim: true,
+    },
+
     address: {
       type: String,
       default: "",

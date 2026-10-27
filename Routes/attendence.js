@@ -9,11 +9,29 @@ const {
   deleteAttendance,
   getAttendanceDashboard,
   getAttendanceById,
+  getAttendanceReports,
+  getAttendanceAuditLogs,
 } = require("../Controllers/attendence");
 const protect = require("../Middleware/protect");
 const {
   requirePermissionOrRole,
 } = require("../Middleware/authorizePermission");
+
+// Attendance summary reports
+router.get(
+  "/reports/summary",
+  protect,
+  requirePermissionOrRole("attendance.read", "admin", "teacher"),
+  getAttendanceReports
+);
+
+// Attendance audit logs
+router.get(
+  "/audit-logs",
+  protect,
+  requirePermissionOrRole("attendance.read", "admin"),
+  getAttendanceAuditLogs
+);
 
 // Mark attendance
 router.post(
@@ -23,7 +41,7 @@ router.post(
   markAttendance
 );
 
-// Get attendance by batch & date
+// Get attendance by batch & date / session
 router.get(
   "/",
   protect,

@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const mongooseConnectToDb = require("./Config/db");
 const app = require("./App");
 const { initReminderScheduler, stopReminderScheduler } = require("./Utils/reminderScheduler");
+const { initSessionScheduler, stopSessionScheduler } = require("./Utils/sessionScheduler");
 
 const PORT = process.env.PORT || 5000;
 
@@ -17,6 +18,7 @@ const shutdown = async () => {
 
   try {
     stopReminderScheduler();
+    stopSessionScheduler();
     if (server) {
       server.close(() => {
         console.log("✅ HTTP server closed");
@@ -45,6 +47,7 @@ mongooseConnectToDb()
     server = app.listen(PORT, () => {
       console.log(`🚀 Server running on ${PORT}`);
       initReminderScheduler();
+      initSessionScheduler();
     });
   })
   .catch((err) => {
