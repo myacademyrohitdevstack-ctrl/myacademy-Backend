@@ -96,7 +96,7 @@ const getExams = asyncHandler(async (req, res) => {
 // 3. Get Single Exam with Full Results & Batch Students
 const getExamById = asyncHandler(async (req, res) => {
   const exam = await Exam.findOne({ _id: req.params.id, academyId: req.academy._id, isDeleted: false })
-    .populate("batchId", "name students course")
+    .populate("batchId", "name students trainers course")
     .populate("courseId", "title")
     .populate("createdBy", "fullName email");
 
@@ -104,17 +104,42 @@ const getExamById = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: "Exam not found." });
   }
 
-  // Load batch students details
+  // If teacher, verify assigned batch or createdBy
+  if (req.user.role === "teacher") {
+    const isTrainer = (exam.batchId?.trainers || []).some(
+      (t) => (t._id || t).toString() === req.user._id.toString()
+    );
+    const isCreator =
+      exam.createdBy?._id?.toString() === req.user._id.toString() ||
+      exam.createdBy?.toString() === req.user._id.toString();
+    if (!isTrainer && !isCreator) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. You can only view exams for your assigned batches.",
+      });
+    }
+  }
+
+  // Load batch students details - ONLY enrolled users with role 'student' (strictly excludes teachers/admins)
   const studentIds = exam.batchId?.students || [];
-  const students = await User.find({ _id: { $in: studentIds }, isDeleted: false })
-    .select("fullName email phone profileImage status");
+  const students = await User.find({
+    _id: { $in: studentIds },
+    role: "student",
+    isDeleted: false,
+  }).select("fullName email phone profileImage status role");
 
-  // Load recorded results
+  // Load recorded results for verified students only
   const results = await ExamResult.find({ examId: exam._id, academyId: req.academy._id })
-    .populate("studentId", "fullName email phone profileImage")
-    .populate("gradedBy", "fullName");
+    .populate({
+      path: "studentId",
+      match: { role: "student" },
+      select: "fullName email phone profileImage role",
+    })
+    .populate("gradedBy", "fullName email");
 
-  res.status(200).json({ success: true, exam, students, results });
+  const validResults = results.filter((r) => r.studentId);
+
+  res.status(200).json({ success: true, exam, students, results: validResults });
 });
 
 // 4. Update Exam Details
@@ -155,19 +180,52 @@ const deleteExam = asyncHandler(async (req, res) => {
 
 // 6. Save / Submit Bulk Exam Results (Admin or Teacher)
 const saveExamResults = asyncHandler(async (req, res) => {
-  const { results = [] } = req.body; // Array of { studentId, marksObtained, remarks }
-  const exam = await Exam.findOne({ _id: req.params.id, academyId: req.academy._id, isDeleted: false });
+  const { results = [] } = req.body; // Array of { studentId / studentUserId, marksObtained, remarks }
+  const exam = await Exam.findOne({ _id: req.params.id, academyId: req.academy._id, isDeleted: false })
+    .populate("batchId", "name students trainers course");
 
   if (!exam) {
     return res.status(404).json({ success: false, message: "Exam not found." });
+  }
+
+  // Teacher authorization check: If teacher, must be an assigned trainer of this batch or creator
+  if (req.user.role === "teacher") {
+    const isTrainer = (exam.batchId?.trainers || []).some(
+      (t) => (t._id || t).toString() === req.user._id.toString()
+    );
+    const isCreator =
+      exam.createdBy?._id?.toString() === req.user._id.toString() ||
+      exam.createdBy?.toString() === req.user._id.toString();
+    if (!isTrainer && !isCreator) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. You can only record marks for exams in your assigned batches.",
+      });
+    }
   }
 
   if (!Array.isArray(results) || results.length === 0) {
     return res.status(400).json({ success: false, message: "Results list is required." });
   }
 
+  // Enforce that only users enrolled in this batch WITH role: 'student' can receive marks
+  // Teachers, staff, or admins must NEVER receive marks in an exam!
+  const batchStudentIds = exam.batchId?.students || [];
+  const validBatchStudents = await User.find({
+    _id: { $in: batchStudentIds },
+    role: "student",
+    isDeleted: false,
+  }).select("_id");
+  const validStudentSet = new Set(validBatchStudents.map((s) => s._id.toString()));
+
   const ops = [];
   for (const item of results) {
+    const studentIdentifier = (item.studentId || item.studentUserId)?.toString();
+    if (!studentIdentifier || !validStudentSet.has(studentIdentifier)) {
+      // Discard any entry that is not a valid enrolled student (e.g. teachers or non-students)
+      continue;
+    }
+
     const marks = Number(item.marksObtained);
     if (isNaN(marks) || marks < 0) continue;
 
@@ -177,10 +235,14 @@ const saveExamResults = asyncHandler(async (req, res) => {
 
     ops.push({
       updateOne: {
-        filter: { academyId: req.academy._id, examId: exam._id, studentId: item.studentId },
+        filter: {
+          academyId: req.academy._id,
+          examId: exam._id,
+          studentId: studentIdentifier,
+        },
         update: {
           $set: {
-            batchId: exam.batchId,
+            batchId: exam.batchId._id || exam.batchId,
             marksObtained: marks,
             totalMarks: exam.totalMarks,
             percentage,
@@ -195,12 +257,17 @@ const saveExamResults = asyncHandler(async (req, res) => {
     });
   }
 
-  if (ops.length > 0) {
-    await ExamResult.bulkWrite(ops);
-    exam.isResultsPublished = true;
-    exam.status = "completed";
-    await exam.save();
+  if (ops.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "No valid student marks were submitted. Only enrolled students with role 'student' can receive marks.",
+    });
   }
+
+  await ExamResult.bulkWrite(ops);
+  exam.isResultsPublished = true;
+  exam.status = "completed";
+  await exam.save();
 
   res.status(200).json({ success: true, message: "Exam results saved and published successfully." });
 });

@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Batch = require("../Modals/Batches");
 const { assertResourceLimit } = require("../Utils/planEnforcer");
 const Student  = require("../Modals/Student");
+const User = require("../Modals/User");
 const Course = require("../Modals/Courses");
 const asyncHandler = require("../Utils/asyncHandler");
 const createBatch = asyncHandler(async (req, res) => {
@@ -97,6 +98,15 @@ const getBatchById = asyncHandler(async (req, res) => {
   });
 });
 const updateBatch = asyncHandler(async (req, res) => {
+  // Ensure only users with role 'student' can be enrolled into batch.students
+  if (req.body.students && Array.isArray(req.body.students)) {
+    const validStudents = await User.find({
+      _id: { $in: req.body.students },
+      role: "student",
+      isDeleted: false,
+    }).select("_id");
+    req.body.students = validStudents.map((s) => s._id);
+  }
  const batch = await Batch.findOneAndUpdate(
   {
     _id: req.params.batchId,
@@ -198,6 +208,19 @@ const addStudentToBatch = asyncHandler(
     }
 
     const canonicalUserId = student.user || student._id;
+
+    // Verify user has role 'student' (strictly prevent teachers or staff in batch.students)
+    const userDoc = await User.findOne({
+      _id: canonicalUserId,
+      role: "student",
+      isDeleted: false,
+    });
+    if (!userDoc) {
+      return res.status(400).json({
+        success: false,
+        message: "Only users with the role 'student' can be enrolled into a batch.",
+      });
+    }
 
     const alreadyAdded = batch.students.some(
       (id) =>
