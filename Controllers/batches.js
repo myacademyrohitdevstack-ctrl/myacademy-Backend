@@ -21,8 +21,19 @@ const createBatch = asyncHandler(async (req, res) => {
     });
   }
 
+  let cleanStudents = [];
+  if (req.body.students && Array.isArray(req.body.students)) {
+    const validStudents = await User.find({
+      _id: { $in: req.body.students },
+      role: "student",
+      isDeleted: false,
+    }).select("_id");
+    cleanStudents = validStudents.map((s) => s._id);
+  }
+
   const batch = await Batch.create({
     ...req.body,
+    students: cleanStudents,
     course: course._id,
     createdBy:req.user._id,
     academyId:req.academy._id
@@ -249,13 +260,14 @@ const addStudentToBatch = asyncHandler(
 const getBatchStudents = asyncHandler(
   async (req, res) => {
     const batch = await Batch.findOne({
-      _id:req.params.batchId,
-      academyId:req.academy._id,
-        isDeleted:false
-  }).populate(
-  "students",
-  "fullName email phone profileImage"
-);
+      _id: req.params.batchId,
+      academyId: req.academy._id,
+      isDeleted: false,
+    }).populate({
+      path: "students",
+      match: { role: "student" },
+      select: "fullName email phone profileImage role",
+    });
 
     if (!batch) {
       return res.status(404).json({
@@ -264,10 +276,12 @@ const getBatchStudents = asyncHandler(
       });
     }
 
+    const students = (batch.students || []).filter(Boolean);
+
     res.status(200).json({
       success: true,
-      count: batch.students.length,
-      students: batch.students,
+      count: students.length,
+      students,
     });
   }
 );

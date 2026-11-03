@@ -49,7 +49,11 @@ function buildInstallments({ total, count, startDate, frequency, template }) {
 exports.listFeePlans = asyncHandler(async (req, res) => {
   const { status, search = "", page = 1, limit = 20 } = req.query;
   const filter = activeFeeFilter(req);
-  if (status && ["active", "inactive", "archived"].includes(status)) filter.status = status;
+  if (status && ["active", "inactive", "archived"].includes(status)) {
+    filter.status = status;
+  } else if (!status || status === "all") {
+    filter.status = { $ne: "archived" };
+  }
   if (search.trim()) filter.name = { $regex: search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
   const p = Math.max(1, Number(page) || 1);
   const l = Math.min(100, Math.max(1, Number(limit) || 20));
@@ -91,15 +95,87 @@ exports.createFeePlan = asyncHandler(async (req, res) => {
 
 exports.updateFeePlan = asyncHandler(async (req, res) => {
   requireId(req.params.id, "fee plan id");
-  const allowed = ["name", "description", "course", "batch", "totalAmount", "frequency", "installments", "lateFeeAmount", "lateFeeGraceDays", "installmentTemplate", "status"];
+  await assertFeatureEnabled(academyIdOf(req), "fee_management");
+
+  const allowed = [
+    "name",
+    "description",
+    "course",
+    "batch",
+    "totalAmount",
+    "frequency",
+    "installments",
+    "lateFeeAmount",
+    "lateFeeGraceDays",
+    "installmentTemplate",
+    "status",
+  ];
   const updates = {};
   for (const key of allowed) if (req.body[key] !== undefined) updates[key] = req.body[key];
-  if (updates.totalAmount !== undefined) updates.totalAmount = money(updates.totalAmount, "totalAmount");
-  if (updates.lateFeeAmount !== undefined) updates.lateFeeAmount = money(updates.lateFeeAmount, "lateFeeAmount");
-  if (updates.status && !["active", "inactive", "archived"].includes(updates.status)) throw httpError(400, "Invalid fee plan status.");
-  if (updates.name !== undefined && !String(updates.name).trim()) throw httpError(400, "Name cannot be empty.");
+
+  if (updates.name !== undefined) {
+    if (!String(updates.name).trim()) throw httpError(400, "Name cannot be empty.");
+    updates.name = String(updates.name).trim();
+  }
+
+  if (updates.totalAmount !== undefined) {
+    updates.totalAmount = money(updates.totalAmount, "totalAmount");
+  }
+
+  if (updates.lateFeeAmount !== undefined) {
+    updates.lateFeeAmount = money(updates.lateFeeAmount, "lateFeeAmount");
+  }
+
+  if (updates.status && !["active", "inactive", "archived"].includes(updates.status)) {
+    throw httpError(400, "Invalid fee plan status.");
+  }
+
+  if (updates.frequency) {
+    if (!["one-time", "weekly", "monthly", "bi-monthly", "quarterly", "custom"].includes(updates.frequency)) {
+      throw httpError(400, "Invalid frequency.");
+    }
+  }
+
+  if (updates.installments !== undefined) {
+    const inst = Number(updates.installments);
+    if (isNaN(inst) || inst < 1 || inst > 60) throw httpError(400, "Installments must be between 1 and 60.");
+    updates.installments = inst;
+  }
+
+  if (updates.lateFeeGraceDays !== undefined) {
+    updates.lateFeeGraceDays = Math.max(0, Number(updates.lateFeeGraceDays) || 0);
+  }
+
+  if (updates.course !== undefined) {
+    if (updates.course && updates.course !== "" && updates.course !== "null") {
+      requireId(updates.course, "course id");
+      if (!await Course.exists({ _id: updates.course, academyId: academyIdOf(req), isDeleted: false })) {
+        throw httpError(404, "Course not found in this academy.");
+      }
+    } else {
+      updates.course = null;
+    }
+  }
+
+  if (updates.batch !== undefined) {
+    if (updates.batch && updates.batch !== "" && updates.batch !== "null") {
+      requireId(updates.batch, "batch id");
+      if (!await Batch.exists({ _id: updates.batch, academyId: academyIdOf(req), isDeleted: false })) {
+        throw httpError(404, "Batch not found in this academy.");
+      }
+    } else {
+      updates.batch = null;
+    }
+  }
+
   updates.updatedBy = req.user._id;
-  const plan = await FeePlan.findOneAndUpdate({ _id: req.params.id, ...activeFeeFilter(req) }, { $set: updates }, { new: true, runValidators: true });
+
+  const plan = await FeePlan.findOneAndUpdate(
+    { _id: req.params.id, ...activeFeeFilter(req) },
+    { $set: updates },
+    { new: true, runValidators: true }
+  ).populate("batch", "name").populate("course", "title");
+
   if (!plan) throw httpError(404, "Fee plan not found.");
   res.json({ success: true, message: "Fee plan updated.", data: plan });
 });
