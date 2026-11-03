@@ -341,7 +341,7 @@ exports.previewReminder = asyncHandler(async (req, res) => {
   const academyName = academyDoc?.name || "MyAcademy";
   const supportPhone = academyDoc?.supportPhone || academyDoc?.phone || "";
 
-  // Resolve target installment or consolidated
+  // Resolve target installment or default to nearest unpaid installment
   let targetInstallment = null;
   let remainingAmount = fee.balanceAmount;
   let targetDueDate = null;
@@ -353,11 +353,15 @@ exports.previewReminder = asyncHandler(async (req, res) => {
       targetDueDate = targetInstallment.dueDate;
     }
   } else {
-    // Consolidated: find nearest pending installment due date
+    // Default to the nearest active unpaid installment rather than the entire course contract balance
     const nextDue = (fee.installments || [])
-      .filter((i) => !["paid", "waived"].includes(i.status))
+      .filter((i) => !["paid", "waived"].includes(i.status) && (Number(i.amount) - Number(i.paidAmount || 0)) > 0)
       .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))[0];
-    targetDueDate = nextDue?.dueDate || null;
+    if (nextDue) {
+      targetInstallment = nextDue;
+      remainingAmount = Math.max(0, Math.round((nextDue.amount - (nextDue.paidAmount || 0)) * 100) / 100);
+      targetDueDate = nextDue.dueDate;
+    }
   }
 
   // Resolve template body
@@ -473,7 +477,7 @@ exports.sendManualReminder = asyncHandler(async (req, res) => {
     });
   }
 
-  // Resolve installment or consolidated balance
+  // Resolve installment or default to nearest unpaid installment
   let targetInstallment = null;
   let remainingAmount = fee.balanceAmount;
   let targetDueDate = null;
@@ -490,9 +494,13 @@ exports.sendManualReminder = asyncHandler(async (req, res) => {
     }
   } else {
     const nextDue = (fee.installments || [])
-      .filter((i) => !["paid", "waived"].includes(i.status))
+      .filter((i) => !["paid", "waived"].includes(i.status) && (Number(i.amount) - Number(i.paidAmount || 0)) > 0)
       .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))[0];
-    targetDueDate = nextDue?.dueDate || null;
+    if (nextDue) {
+      targetInstallment = nextDue;
+      remainingAmount = Math.max(0, Math.round((nextDue.amount - (nextDue.paidAmount || 0)) * 100) / 100);
+      targetDueDate = nextDue.dueDate;
+    }
   }
 
   const academyDoc = await Academy.findById(academyId).select("name phone supportPhone logo currency");
@@ -1001,8 +1009,12 @@ exports.sendBulkReminders = asyncHandler(async (req, res) => {
       }
 
       const nextDue = (fee.installments || [])
-        .filter((i) => !["paid", "waived"].includes(i.status))
+        .filter((i) => !["paid", "waived"].includes(i.status) && (Number(i.amount) - Number(i.paidAmount || 0)) > 0)
         .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))[0];
+
+      const installmentDueAmount = nextDue
+        ? Math.max(0, Math.round((Number(nextDue.amount) - Number(nextDue.paidAmount || 0)) * 100) / 100)
+        : fee.balanceAmount;
 
       const formattedDueDate = nextDue?.dueDate
         ? new Date(nextDue.dueDate).toLocaleDateString("en-IN", {
@@ -1017,9 +1029,9 @@ exports.sendBulkReminders = asyncHandler(async (req, res) => {
         studentName: studentUser.fullName,
         parentName: recipient.name,
         className: fee.batch?.name || fee.course?.title || "Class",
-        feeAmount: String(fee.totalPayable),
-        paidAmount: String(fee.paidAmount),
-        pendingAmount: String(fee.balanceAmount),
+        feeAmount: String(nextDue ? nextDue.amount : fee.totalPayable),
+        paidAmount: String(nextDue ? (nextDue.paidAmount || 0) : fee.paidAmount),
+        pendingAmount: String(installmentDueAmount),
         dueDate: formattedDueDate,
         installmentName: nextDue?.label || "Consolidated Balance",
         supportPhone,
@@ -1042,7 +1054,7 @@ exports.sendBulkReminders = asyncHandler(async (req, res) => {
           email: recipientEmail || null,
           role: recipient.role,
         },
-        amountDue: fee.balanceAmount,
+        amountDue: installmentDueAmount,
         dueDate: nextDue?.dueDate || null,
         channel: isEmailMode ? "resend_email" : canUsePlatformApi ? "whatsapp_platform_gateway" : canUseCloudApi ? "whatsapp_cloud_api" : "whatsapp_click_to_chat",
         reminderType: "manual",

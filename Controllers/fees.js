@@ -253,18 +253,77 @@ exports.searchFeeStudents = asyncHandler(async (req, res) => {
   ]);
   const profileByUser = new Map(profiles.map(p => [String(p.user), p]));
   const feeByUser = new Map();
+  const now = new Date();
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
   for (const fee of fees) {
     const key = String(fee.student);
-    const existing = feeByUser.get(key) || { totalFee: 0, paidAmount: 0, pendingAmount: 0, dueDate: null, feeAccounts: [] };
+    const existing = feeByUser.get(key) || {
+      totalFee: 0,
+      paidAmount: 0,
+      totalBalance: 0,
+      currentDueAmount: 0,
+      pendingAmount: 0,
+      dueDate: null,
+      nextInstallment: null,
+      feeAccounts: [],
+    };
+
+    const unpaidInsts = (fee.installments || [])
+      .filter((i) => !["paid", "waived"].includes(i.status) && (Number(i.amount) - Number(i.paidAmount || 0)) > 0)
+      .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+
+    const nextDue = unpaidInsts[0] || null;
+
+    // Overdue installments plus installments due in current calendar cycle
+    const currentCycleInsts = unpaidInsts.filter((i) => new Date(i.dueDate) <= endOfMonth);
+    const feeCurrentDue =
+      currentCycleInsts.length > 0
+        ? currentCycleInsts.reduce((sum, i) => sum + (Number(i.amount) - Number(i.paidAmount || 0)), 0)
+        : nextDue
+        ? Number(nextDue.amount) - Number(nextDue.paidAmount || 0)
+        : 0;
+
     existing.totalFee += fee.totalPayable;
     existing.paidAmount += fee.paidAmount;
-    existing.pendingAmount += fee.balanceAmount;
-    const nextDue = (fee.installments || []).filter(i => i.status !== "paid" && i.status !== "waived").sort((a,b) => new Date(a.dueDate)-new Date(b.dueDate))[0];
-    if (nextDue && (!existing.dueDate || new Date(nextDue.dueDate) < new Date(existing.dueDate))) existing.dueDate = nextDue.dueDate;
-    existing.feeAccounts.push({ _id: fee._id, batch: fee.batch, status: fee.status, balanceAmount: fee.balanceAmount });
+    existing.totalBalance += fee.balanceAmount;
+    existing.currentDueAmount += Math.round(feeCurrentDue * 100) / 100;
+    // Set pendingAmount to currentDueAmount for monthly billing view
+    existing.pendingAmount += Math.round(feeCurrentDue * 100) / 100;
+
+    if (nextDue && (!existing.dueDate || new Date(nextDue.dueDate) < new Date(existing.dueDate))) {
+      existing.dueDate = nextDue.dueDate;
+      existing.nextInstallment = {
+        _id: nextDue._id,
+        label: nextDue.label,
+        amount: Math.round((Number(nextDue.amount) - Number(nextDue.paidAmount || 0)) * 100) / 100,
+        dueDate: nextDue.dueDate,
+        isOverdue: new Date(nextDue.dueDate) < now,
+      };
+    }
+
+    existing.feeAccounts.push({
+      _id: fee._id,
+      batch: fee.batch,
+      status: fee.status,
+      balanceAmount: fee.balanceAmount,
+      totalPayable: fee.totalPayable,
+      paidAmount: fee.paidAmount,
+      currentDueAmount: Math.round(feeCurrentDue * 100) / 100,
+      nextInstallment: nextDue
+        ? {
+            _id: nextDue._id,
+            label: nextDue.label,
+            amount: Math.round((Number(nextDue.amount) - Number(nextDue.paidAmount || 0)) * 100) / 100,
+            dueDate: nextDue.dueDate,
+            isOverdue: new Date(nextDue.dueDate) < now,
+          }
+        : null,
+      installments: fee.installments,
+    });
     feeByUser.set(key, existing);
   }
-  res.json({ success: true, data: users.map(u => ({ _id: u._id, userId: u._id, name: u.fullName, email: u.email, phone: u.phone, studentProfileId: profileByUser.get(String(u._id))?._id || null, ...(feeByUser.get(String(u._id)) || { totalFee: 0, paidAmount: 0, pendingAmount: 0, dueDate: null, feeAccounts: [] }) })) });
+  res.json({ success: true, data: users.map(u => ({ _id: u._id, userId: u._id, name: u.fullName, email: u.email, phone: u.phone, studentProfileId: profileByUser.get(String(u._id))?._id || null, ...(feeByUser.get(String(u._id)) || { totalFee: 0, paidAmount: 0, totalBalance: 0, currentDueAmount: 0, pendingAmount: 0, dueDate: null, nextInstallment: null, feeAccounts: [] }) })) });
 });
 
 exports.assignFee = asyncHandler(async (req, res) => {
@@ -416,13 +475,58 @@ exports.getReceipt = asyncHandler(async (req, res) => {
 exports.getPendingFees = asyncHandler(async (req, res) => {
   const filter = { ...activeFeeFilter(req), balanceAmount: { $gt: 0 }, status: { $in: ["pending", "partial", "overdue"] } };
   if (req.query.batchId) { requireId(req.query.batchId, "batch id"); filter.batch = req.query.batchId; }
-  const fees = await StudentFee.find(filter).populate("student", "fullName email phone").populate("batch", "name").sort({ "installments.dueDate": 1 }).limit(Math.min(500, Math.max(1, Number(req.query.limit) || 100)));
+  const fees = await StudentFee.find(filter)
+    .populate("student", "fullName email phone")
+    .populate("batch", "name")
+    .sort({ "installments.dueDate": 1 })
+    .limit(Math.min(500, Math.max(1, Number(req.query.limit) || 100)));
+
   const now = new Date();
-  const data = fees.map(f => {
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+  const data = fees.map((f) => {
     const obj = f.toObject();
-    const nextDue = (f.installments || []).filter(i => !["paid", "waived"].includes(i.status)).sort((a,b) => new Date(a.dueDate)-new Date(b.dueDate))[0];
-    const overdue = (f.installments || []).some(i => !["paid", "waived"].includes(i.status) && new Date(i.dueDate) < now);
-    return { ...obj, nextDueDate: nextDue?.dueDate || null, urgency: overdue ? "critical" : nextDue && (new Date(nextDue.dueDate)-now) < 7*86400000 ? "upcoming" : "moderate" };
+    const unpaidInsts = (f.installments || [])
+      .filter((i) => !["paid", "waived"].includes(i.status) && (Number(i.amount) - Number(i.paidAmount || 0)) > 0)
+      .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+
+    const nextDue = unpaidInsts[0] || null;
+
+    // Overdue installments
+    const overdueInsts = unpaidInsts.filter((i) => new Date(i.dueDate) < now);
+    const overdueAmount = overdueInsts.reduce(
+      (sum, i) => sum + (Number(i.amount) - Number(i.paidAmount || 0)),
+      0
+    );
+
+    // Current due: installments overdue plus installments due in current month (or next due installment if none in month)
+    const currentCycleInsts = unpaidInsts.filter((i) => new Date(i.dueDate) <= endOfMonth);
+    const currentDueAmount =
+      currentCycleInsts.length > 0
+        ? currentCycleInsts.reduce((sum, i) => sum + (Number(i.amount) - Number(i.paidAmount || 0)), 0)
+        : nextDue
+        ? Number(nextDue.amount) - Number(nextDue.paidAmount || 0)
+        : 0;
+
+    const overdue = overdueInsts.length > 0;
+    const isDueSoon = nextDue && (new Date(nextDue.dueDate) - now) < 7 * 86400000;
+
+    return {
+      ...obj,
+      currentDueAmount: Math.round(currentDueAmount * 100) / 100,
+      overdueAmount: Math.round(overdueAmount * 100) / 100,
+      nextInstallment: nextDue
+        ? {
+            _id: nextDue._id,
+            label: nextDue.label,
+            amount: Math.round((Number(nextDue.amount) - Number(nextDue.paidAmount || 0)) * 100) / 100,
+            dueDate: nextDue.dueDate,
+            isOverdue: new Date(nextDue.dueDate) < now,
+          }
+        : null,
+      nextDueDate: nextDue?.dueDate || null,
+      urgency: overdue ? "critical" : isDueSoon ? "upcoming" : "moderate",
+    };
   });
   res.json({ success: true, count: data.length, data });
 });
