@@ -177,6 +177,50 @@ exports.updateFeePlan = asyncHandler(async (req, res) => {
   ).populate("batch", "name").populate("course", "title");
 
   if (!plan) throw httpError(404, "Fee plan not found.");
+
+  // Optionally sync assigned active student fees if installments or total amount were adjusted
+  if (req.body.syncAssignedStudents && (updates.installments !== undefined || updates.totalAmount !== undefined)) {
+    const studentFees = await StudentFee.find({
+      feePlan: plan._id,
+      academyId: academyIdOf(req),
+      isDeleted: false,
+      status: { $ne: "cancelled" },
+    });
+
+    const targetCount = Number(plan.installments);
+    const freqMonths =
+      plan.frequency === "quarterly" ? 3 : plan.frequency === "bi-monthly" ? 2 : plan.frequency === "one-time" ? 0 : 1;
+    const perInst = Math.round((plan.totalAmount / targetCount) * 100) / 100;
+
+    for (const fee of studentFees) {
+      const currentCount = (fee.installments || []).length;
+      if (targetCount > currentCount) {
+        const startDate = fee.installments[0]?.dueDate ? new Date(fee.installments[0].dueDate) : new Date(fee.createdAt);
+        if (fee.installments[0] && fee.installments[0].label === "Full payment") {
+          fee.installments[0].label = "Installment 1";
+        }
+
+        for (let i = currentCount; i < targetCount; i++) {
+          const dueDate = new Date(startDate);
+          dueDate.setMonth(dueDate.getMonth() + (freqMonths * i));
+          fee.installments.push({
+            label: `Installment ${i + 1}`,
+            amount: perInst,
+            dueDate,
+            paidAmount: 0,
+            status: "pending",
+            lateFeeAmount: 0,
+            notes: "",
+          });
+        }
+        fee.baseAmount = plan.totalAmount;
+        fee.totalPayable = plan.totalAmount;
+        recalculateFee(fee);
+        await fee.save();
+      }
+    }
+  }
+
   res.json({ success: true, message: "Fee plan updated.", data: plan });
 });
 
